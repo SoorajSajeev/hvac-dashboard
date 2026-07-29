@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { supabase } from './supabaseClient';
 import Login from './Login';
 import ResetPassword from './ResetPassword';
@@ -8,8 +7,7 @@ import { REGIONS, getUnitInfo } from './locationConfig';
 import { getAllowedBuildingIds, NODE_PLACEMENT } from './accessConfig';
 import {
   Zap, Search, LogOut, Factory, CheckCircle2, AlertTriangle, AlertOctagon,
-  Clock, ChevronRight, MapPin, Cpu, Wind, Filter as FilterIcon, Wifi, WifiOff, ShieldCheck, ArrowRight, Wrench, Plus,
-  Maximize2, X,
+  Clock, ChevronRight, MapPin, Cpu, Wind, Filter as FilterIcon, Wifi, WifiOff, ShieldCheck, Plus,
 } from 'lucide-react';
 
 const REFRESH_INTERVAL_MS = 15000;
@@ -26,15 +24,6 @@ const PIN_POSITIONS = {
 
 // Recommended service interval per component, in days — tune to your real maintenance schedule.
 const SERVICE_INTERVAL_DAYS = { motor: 180, belt: 90, filter: 60 };
-
-const SENSOR_LINES = [
-  { key: 'motor_temperature', label: 'Motor Temp', unit: '°C', color: '#CC0C39' },
-  { key: 'motor_vibration', label: 'Vibration', unit: 'mm/s', color: '#7C3AED' },
-  { key: 'motor_current', label: 'Motor Current', unit: 'A', color: '#2874F0' },
-  { key: 'motor_rpm', label: 'Motor RPM', unit: 'rpm', color: '#0F766E' },
-  { key: 'blower_rpm', label: 'Blower RPM', unit: 'rpm', color: ACCENT },
-  { key: 'filter_dp', label: 'Filter ΔP', unit: 'Pa', color: '#1E7E34' },
-];
 
 const statusMeta = {
   healthy: { label: 'All good', color: '#1E7E34', bg: '#E9F6EC', border: '#C3E6CB', Icon: CheckCircle2 },
@@ -234,19 +223,6 @@ function Dashboard({ session }) {
         .nx-crumb:hover { color: ${ACCENT}; }
         .nx-logout-btn:hover { background: #F1F3F6; }
         .nx-maint-btn:hover { background: #F1F3F6; }
-        .nx-trend-card { transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease; cursor: pointer; }
-        .nx-trend-card:hover { border-color: #C7CDD4; box-shadow: 0 4px 14px rgba(15,17,17,0.10); transform: translateY(-1px); }
-        .nx-expand-btn { opacity: 0; transition: opacity 0.15s ease; }
-        .nx-trend-card:hover .nx-expand-btn { opacity: 1; }
-        .nx-modal-close:hover { background: #F1F3F6; }
-        @keyframes nx-flow {
-          0% { background-position: 0 0; }
-          100% { background-position: 28px 0; }
-        }
-        @keyframes nx-modal-in {
-          from { opacity: 0; transform: scale(0.97); }
-          to { opacity: 1; transform: scale(1); }
-        }
       `}</style>
 
       <nav style={styles.nav}>
@@ -387,6 +363,7 @@ function Dashboard({ session }) {
             buildingId={selectedBuildingId}
             history={byBuilding[selectedBuildingId] || []}
             maintenanceLogs={maintenanceLogs.filter((m) => String(m.building_id) === String(selectedBuildingId))}
+            canLogMaintenance={role === 'engineer'}
             onLogMaintenance={async (component, date, notes) => {
               await supabase.from('maintenance_log').insert({
                 building_id: String(selectedBuildingId),
@@ -525,10 +502,9 @@ function polarPoint(cx, cy, r, angleDeg) {
 function Gauge({ fraction, size = 108 }) {
   const clamped = Math.max(0, Math.min(1, fraction));
   const cx = 54, cy = 54, r = 42;
-  const startAngle = 180;
-  const endAngle = 180 - clamped * 180;
   const p0 = polarPoint(cx, cy, r, 180);
   const p1 = polarPoint(cx, cy, r, 0);
+  const endAngle = 180 - clamped * 180;
   const pCurrent = polarPoint(cx, cy, r, endAngle);
 
   const color = clamped < 0.6 ? '#1E7E34' : clamped < 1 ? '#946200' : '#CC0C39';
@@ -547,9 +523,9 @@ function Gauge({ fraction, size = 108 }) {
   );
 }
 
-/* ---------- Maintenance card with gauge + log-record form ---------- */
+/* ---------- Maintenance card: gauge + view-only or log form depending on role ---------- */
 
-function MaintenanceCard({ componentKey, label, Icon, logs, onLog }) {
+function MaintenanceCard({ componentKey, label, Icon, logs, canLog, onLog }) {
   const [open, setOpen] = useState(false);
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState('');
@@ -592,29 +568,31 @@ function MaintenanceCard({ componentKey, label, Icon, logs, onLog }) {
         <div style={styles.maintNoRecord}>No maintenance logged yet</div>
       )}
 
-      {!open ? (
-        <button className="nx-maint-btn" style={styles.maintLogBtn} onClick={() => setOpen(true)}>
-          <Plus size={12} /> Log maintenance
-        </button>
-      ) : (
-        <form onSubmit={handleSubmit} style={styles.maintForm}>
-          <label style={styles.maintFormLabel}>Date</label>
-          <input
-            type="date" value={date} onChange={(e) => setDate(e.target.value)}
-            style={styles.maintFormInput} required
-          />
-          <label style={styles.maintFormLabel}>Notes (optional)</label>
-          <textarea
-            value={notes} onChange={(e) => setNotes(e.target.value)}
-            style={styles.maintFormTextarea} rows={2} placeholder="What was done…"
-          />
-          <div style={styles.maintFormBtnRow}>
-            <button type="button" style={styles.maintFormCancel} onClick={() => setOpen(false)}>Cancel</button>
-            <button type="submit" style={styles.maintFormSave} disabled={saving}>
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-          </div>
-        </form>
+      {canLog && (
+        !open ? (
+          <button className="nx-maint-btn" style={styles.maintLogBtn} onClick={() => setOpen(true)}>
+            <Plus size={12} /> Log maintenance
+          </button>
+        ) : (
+          <form onSubmit={handleSubmit} style={styles.maintForm}>
+            <label style={styles.maintFormLabel}>Date</label>
+            <input
+              type="date" value={date} onChange={(e) => setDate(e.target.value)}
+              style={styles.maintFormInput} required
+            />
+            <label style={styles.maintFormLabel}>Notes (optional)</label>
+            <textarea
+              value={notes} onChange={(e) => setNotes(e.target.value)}
+              style={styles.maintFormTextarea} rows={2} placeholder="What was done…"
+            />
+            <div style={styles.maintFormBtnRow}>
+              <button type="button" style={styles.maintFormCancel} onClick={() => setOpen(false)}>Cancel</button>
+              <button type="submit" style={styles.maintFormSave} disabled={saving}>
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </form>
+        )
       )}
     </div>
   );
@@ -680,111 +658,43 @@ function PinCardBody({ segment, meta, Icon, reporting }) {
   );
 }
 
-/* ---------- Sensor trend chart (shared by card + modal) ---------- */
+/* ---------- Maintenance history report (view-only, all roles) ---------- */
 
-function SensorLineChart({ data, s, height, fontSize = 9.5, showGrid = true }) {
-  return (
-    <ResponsiveContainer width="100%" height={height}>
-      <LineChart data={data} margin={{ top: 8, right: 14, left: 4, bottom: 24 }}>
-        {showGrid && <CartesianGrid stroke="#E3E6E8" strokeDasharray="3 3" vertical={false} />}
-        <XAxis
-          dataKey="time"
-          tick={{ fill: '#565959', fontSize }}
-          axisLine={{ stroke: '#D5D9D9' }}
-          tickLine={false}
-          interval="preserveStartEnd"
-          label={{ value: 'Time', position: 'insideBottom', offset: -16, fontSize: fontSize + 0.5, fill: '#565959', fontWeight: 600 }}
-        />
-        <YAxis
-          tick={{ fill: '#565959', fontSize }}
-          axisLine={{ stroke: '#D5D9D9' }}
-          tickLine={false}
-          width={48}
-          label={{
-            value: s.unit ? `${s.label} (${s.unit})` : s.label,
-            angle: -90,
-            position: 'insideLeft',
-            fontSize: fontSize + 0.5,
-            fill: '#565959',
-            fontWeight: 600,
-          }}
-        />
-        <Tooltip
-          contentStyle={{ background: '#131A2C', border: 'none', borderRadius: 8, fontSize: 12 }}
-          labelStyle={{ color: '#D1D5DB' }}
-          itemStyle={{ color: s.color }}
-          formatter={(value) => [`${value}${s.unit ? ' ' + s.unit : ''}`, s.label]}
-        />
-        <Line type="monotone" dataKey="value" stroke={s.color} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-      </LineChart>
-    </ResponsiveContainer>
-  );
-}
+const COMPONENT_LABELS = { motor: 'Motor', belt: 'Belt', filter: 'Filter' };
 
-function TrendCard({ s, data, hasData, onExpand }) {
+function MaintenanceReport({ logs }) {
+  const sorted = [...logs].sort((a, b) => new Date(b.maintenance_date) - new Date(a.maintenance_date));
+
   return (
-    <div className="nx-trend-card" style={styles.trendCard} onClick={onExpand}>
-      <div style={styles.trendCardHeader}>
-        <span style={{ ...styles.trendDot, background: s.color }} />
-        <span style={styles.trendCardTitle}>{s.label}</span>
-        {s.unit && <span style={styles.trendCardUnit}>({s.unit})</span>}
-        <button className="nx-expand-btn" style={styles.expandBtn} onClick={(e) => { e.stopPropagation(); onExpand(); }} aria-label="Expand chart">
-          <Maximize2 size={12} />
-        </button>
-      </div>
-      {hasData ? (
-        <SensorLineChart data={data} s={s} height={150} />
+    <div style={styles.card}>
+      <div style={styles.cardTitle}>Maintenance history</div>
+      {sorted.length === 0 ? (
+        <div style={styles.maintReportEmpty}>No maintenance has been logged for this unit yet.</div>
       ) : (
-        <div style={styles.trendEmpty}>No data yet</div>
+        <div style={styles.maintReportList}>
+          {sorted.map((log) => (
+            <div key={log.id} style={styles.maintReportRow}>
+              <div style={styles.maintReportComponent}>{COMPONENT_LABELS[log.component] || log.component}</div>
+              <div style={styles.maintReportMain}>
+                <div style={styles.maintReportDate}>{new Date(log.maintenance_date).toLocaleDateString()}</div>
+                {log.notes && <div style={styles.maintReportNotes}>{log.notes}</div>}
+              </div>
+              <div style={styles.maintReportAgo}>{daysAgo(log.maintenance_date)}d ago</div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
 }
 
-function TrendModal({ s, data, hasData, onClose }) {
-  useEffect(() => {
-    function onKey(e) {
-      if (e.key === 'Escape') onClose();
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  return (
-    <div style={styles.modalOverlay} onClick={onClose}>
-      <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
-        <div style={styles.modalHeader}>
-          <div style={styles.modalHeaderLeft}>
-            <span style={{ ...styles.trendDot, background: s.color, width: 11, height: 11 }} />
-            <span style={styles.modalTitle}>{s.label}</span>
-            {s.unit && <span style={styles.modalUnit}>({s.unit})</span>}
-          </div>
-          <button className="nx-modal-close" style={styles.modalCloseBtn} onClick={onClose} aria-label="Close">
-            <X size={18} />
-          </button>
-        </div>
-        <div style={styles.modalBody}>
-          {hasData ? (
-            <SensorLineChart data={data} s={s} height={440} fontSize={12} />
-          ) : (
-            <div style={{ ...styles.trendEmpty, padding: '60px 0' }}>No data yet</div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function NodeView({ buildingId, history, maintenanceLogs, onLogMaintenance, onBack, onHome }) {
+function NodeView({ buildingId, history, maintenanceLogs, canLogMaintenance, onLogMaintenance, onBack, onHome }) {
   const latest = history[0];
   const nodes = getNodeStatuses(latest);
   const info = getUnitInfo(buildingId);
   const overallMeta = statusMeta[nodes.overall];
   const OverallIcon = overallMeta.Icon;
   const reporting = isReporting(latest);
-  const [expandedKey, setExpandedKey] = useState(null);
-
-  const trendHistory = [...history].slice(0, 30).reverse();
 
   const segments = [
     {
@@ -809,18 +719,6 @@ function NodeView({ buildingId, history, maintenanceLogs, onLogMaintenance, onBa
       ],
     },
   ];
-
-  const sensorDataByKey = {};
-  SENSOR_LINES.forEach((s) => {
-    sensorDataByKey[s.key] = trendHistory.map((p) => ({
-      time: new Date(p.scored_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      value: p[s.key],
-    }));
-  });
-
-  const expandedSensor = expandedKey ? SENSOR_LINES.find((s) => s.key === expandedKey) : null;
-  const expandedData = expandedKey ? sensorDataByKey[expandedKey] : null;
-  const expandedHasData = expandedData ? expandedData.some((d) => d.value != null) : false;
 
   return (
     <div style={styles.nodeViewWrap}>
@@ -872,45 +770,17 @@ function NodeView({ buildingId, history, maintenanceLogs, onLogMaintenance, onBa
 
       <div style={styles.card}>
         <div style={styles.cardTitle}>Maintenance</div>
+        {!canLogMaintenance && (
+          <div style={styles.maintViewOnlyNote}>Only the assigned engineer for this unit can log maintenance.</div>
+        )}
         <div style={styles.maintGrid}>
-          <MaintenanceCard componentKey="motor" label="Motor" Icon={Cpu} logs={maintenanceLogs} onLog={onLogMaintenance} />
-          <MaintenanceCard componentKey="belt" label="Belt" Icon={Wind} logs={maintenanceLogs} onLog={onLogMaintenance} />
-          <MaintenanceCard componentKey="filter" label="Filter" Icon={FilterIcon} logs={maintenanceLogs} onLog={onLogMaintenance} />
+          <MaintenanceCard componentKey="motor" label="Motor" Icon={Cpu} logs={maintenanceLogs} canLog={canLogMaintenance} onLog={onLogMaintenance} />
+          <MaintenanceCard componentKey="belt" label="Belt" Icon={Wind} logs={maintenanceLogs} canLog={canLogMaintenance} onLog={onLogMaintenance} />
+          <MaintenanceCard componentKey="filter" label="Filter" Icon={FilterIcon} logs={maintenanceLogs} canLog={canLogMaintenance} onLog={onLogMaintenance} />
         </div>
       </div>
 
-      {trendHistory.length > 1 && (
-        <div style={styles.card}>
-          <div style={styles.trendSectionHeaderRow}>
-            <div style={styles.cardTitle}>Sensor trends</div>
-            <div style={styles.trendSectionHint}>Click any chart to view full size</div>
-          </div>
-          <div style={styles.trendGrid}>
-            {SENSOR_LINES.map((s) => {
-              const data = sensorDataByKey[s.key];
-              const hasData = data.some((d) => d.value != null);
-              return (
-                <TrendCard
-                  key={s.key}
-                  s={s}
-                  data={data}
-                  hasData={hasData}
-                  onExpand={() => setExpandedKey(s.key)}
-                />
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {expandedSensor && (
-        <TrendModal
-          s={expandedSensor}
-          data={expandedData}
-          hasData={expandedHasData}
-          onClose={() => setExpandedKey(null)}
-        />
-      )}
+      <MaintenanceReport logs={maintenanceLogs} />
     </div>
   );
 }
@@ -1015,6 +885,7 @@ const styles = {
   pinStatLabel: { fontSize: 7.5, color: '#8A93A3', fontWeight: 600, letterSpacing: 0.2, marginTop: 1 },
   pinReporting: { display: 'flex', alignItems: 'center', gap: 3, fontSize: 7.5, fontWeight: 600, paddingTop: 5, borderTop: '1px solid #F1F3F6' },
 
+  maintViewOnlyNote: { fontSize: 11.5, color: '#8A93A3', marginBottom: 14, marginTop: -8 },
   maintGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 },
   maintCard: { background: '#F7F8FA', border: '1px solid #EFF1F4', borderRadius: 10, padding: '14px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' },
   maintCardTop: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 },
@@ -1032,50 +903,12 @@ const styles = {
   maintFormCancel: { flex: 1, fontSize: 11.5, fontWeight: 600, color: '#565959', background: '#FFFFFF', border: '1px solid #D5D9D9', borderRadius: 6, padding: '6px 0', cursor: 'pointer' },
   maintFormSave: { flex: 1, fontSize: 11.5, fontWeight: 700, color: '#fff', background: ACCENT, border: 'none', borderRadius: 6, padding: '6px 0', cursor: 'pointer' },
 
-  trendSectionHeaderRow: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 4 },
-  trendSectionHint: { fontSize: 11, color: '#8A93A3', fontWeight: 500 },
-  trendGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 20, marginTop: 14 },
-  trendCard: { background: '#F7F8FA', border: '1px solid #EFF1F4', borderRadius: 10, padding: '14px 14px 10px', position: 'relative' },
-  trendCardHeader: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 },
-  trendDot: { width: 8, height: 8, borderRadius: '50%', flexShrink: 0 },
-  trendCardTitle: { fontSize: 12.5, fontWeight: 700, color: '#0F1111' },
-  trendCardUnit: { fontSize: 10.5, color: '#8A93A3' },
-  trendEmpty: { fontSize: 11, color: '#8A93A3', padding: '20px 0', textAlign: 'center' },
-  expandBtn: {
-    marginLeft: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    width: 22, height: 22, borderRadius: 6, border: '1px solid #D5D9D9', background: '#FFFFFF',
-    color: '#565959', cursor: 'pointer', flexShrink: 0,
-  },
-
-  modalOverlay: {
-    position: 'fixed', inset: 0, background: 'rgba(15,17,17,0.55)', display: 'flex',
-    alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 24,
-  },
-  modalCard: {
-    background: '#FFFFFF', borderRadius: 14, width: '100%', maxWidth: 880, maxHeight: '88vh',
-    display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(15,17,17,0.35)',
-    animation: 'nx-modal-in 0.15s ease',
-  },
-  modalHeader: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '18px 22px', borderBottom: '1px solid #E3E6E8',
-  },
-  modalHeaderLeft: { display: 'flex', alignItems: 'center', gap: 8 },
-  modalTitle: { fontSize: 16, fontWeight: 700, color: '#0F1111' },
-  modalUnit: { fontSize: 12.5, color: '#8A93A3', fontWeight: 600 },
-  modalCloseBtn: {
-    display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32,
-    borderRadius: 8, border: '1px solid #D5D9D9', background: '#FFFFFF', color: '#0F1111', cursor: 'pointer',
-  },
-  modalBody: { padding: '20px 24px 28px', overflow: 'auto' },
-
-  trendGridLegacy: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 },
+  maintReportEmpty: { fontSize: 12.5, color: '#8A93A3', padding: '10px 0' },
+  maintReportList: { display: 'flex', flexDirection: 'column', gap: 2 },
+  maintReportRow: { display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 4px', borderBottom: '1px solid #F1F3F6' },
+  maintReportComponent: { fontSize: 11.5, fontWeight: 700, color: ACCENT, background: '#FFF3E5', borderRadius: 6, padding: '3px 8px', flexShrink: 0, minWidth: 52, textAlign: 'center' },
+  maintReportMain: { flex: 1, minWidth: 0 },
+  maintReportDate: { fontSize: 13, fontWeight: 600, color: '#0F1111' },
+  maintReportNotes: { fontSize: 12, color: '#565959', marginTop: 2 },
+  maintReportAgo: { fontSize: 11, color: '#8A93A3', whiteSpace: 'nowrap', fontWeight: 500 },
 };
-
-
-
-
-
-
-
-
