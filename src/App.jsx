@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { supabase } from './supabaseClient';
 import Login from './Login';
 import ResetPassword from './ResetPassword';
@@ -8,28 +8,33 @@ import { REGIONS, getUnitInfo } from './locationConfig';
 import { getAllowedBuildingIds, NODE_PLACEMENT } from './accessConfig';
 import {
   Zap, Search, LogOut, Factory, CheckCircle2, AlertTriangle, AlertOctagon,
-  Clock, ChevronRight, MapPin, Cpu, Wind, Filter as FilterIcon, Wifi, WifiOff, ShieldCheck, ArrowRight,
+  Clock, ChevronRight, MapPin, Cpu, Wind, Filter as FilterIcon, Wifi, WifiOff, ShieldCheck, ArrowRight, Wrench, Plus,
+  Maximize2, X,
 } from 'lucide-react';
 
 const REFRESH_INTERVAL_MS = 15000;
 const STALE_THRESHOLD_MS = 30 * 60 * 1000;
 const ACCENT = '#E86A00';
 
-// Drop the AHU cutaway photo in your project (e.g. /public/ahu-cutaway.png) and point this at it.
-// Drop the AHU schematic in your project's /public folder and point this at it.
 const AHU_IMAGE_SRC = '/ahu-schematic.png';
 
-// Pin anchor points as % of image width/height — tuned to the fully-labeled
-// schematic (Return Fan / Damper / Pre Filter / coils / Motor / Belt / Supply
-// Fan / Final Filter / VFD). Only 3 components carry live fault data today, so
-// pins are mapped onto the closest matching labels: Final Filter, Belt, and
-// Motor (Supply Fan). "dist" is the leader-line length, tuned per pin so each
-// card clears the diagram (and its printed labels) instead of covering them.
 const PIN_POSITIONS = {
-  filter: { x: 81, y: 40, side: 'top', dist: 140 },    // Final Filter (green dashed box)
-  motor: { x: 57, y: 48, side: 'top', dist: 110 },     // Motor (Supply Fan)
-  belt: { x: 66, y: 44, side: 'bottom', dist: 150 },   // Belt
+  filter: { x: 81, y: 40, side: 'top', dist: 140 },
+  motor: { x: 57, y: 48, side: 'top', dist: 110 },
+  belt: { x: 66, y: 44, side: 'bottom', dist: 150 },
 };
+
+// Recommended service interval per component, in days — tune to your real maintenance schedule.
+const SERVICE_INTERVAL_DAYS = { motor: 180, belt: 90, filter: 60 };
+
+const SENSOR_LINES = [
+  { key: 'motor_temperature', label: 'Motor Temp', unit: '°C', color: '#CC0C39' },
+  { key: 'motor_vibration', label: 'Vibration', unit: 'mm/s', color: '#7C3AED' },
+  { key: 'motor_current', label: 'Motor Current', unit: 'A', color: '#2874F0' },
+  { key: 'motor_rpm', label: 'Motor RPM', unit: 'rpm', color: '#0F766E' },
+  { key: 'blower_rpm', label: 'Blower RPM', unit: 'rpm', color: ACCENT },
+  { key: 'filter_dp', label: 'Filter ΔP', unit: 'Pa', color: '#1E7E34' },
+];
 
 const statusMeta = {
   healthy: { label: 'All good', color: '#1E7E34', bg: '#E9F6EC', border: '#C3E6CB', Icon: CheckCircle2 },
@@ -51,6 +56,12 @@ function timeAgo(iso) {
   if (diff < 60) return `${Math.floor(diff)}s ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   return `${Math.floor(diff / 3600)}h ago`;
+}
+
+function daysAgo(dateStr) {
+  if (!dateStr) return null;
+  const diff = (Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24);
+  return Math.floor(diff);
 }
 
 function isReporting(latest) {
@@ -100,6 +111,7 @@ export default function App() {
 
 function Dashboard({ session }) {
   const [predictions, setPredictions] = useState([]);
+  const [maintenanceLogs, setMaintenanceLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastFetch, setLastFetch] = useState(null);
@@ -134,11 +146,24 @@ function Dashboard({ session }) {
     }
   }, []);
 
+  const fetchMaintenance = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('maintenance_log')
+        .select('*')
+        .order('maintenance_date', { ascending: false });
+      if (!error) setMaintenanceLogs(data || []);
+    } catch (e) {
+      // non-fatal — maintenance log is supplementary
+    }
+  }, []);
+
   useEffect(() => {
     fetchData();
+    fetchMaintenance();
     const id = setInterval(fetchData, REFRESH_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [fetchData]);
+  }, [fetchData, fetchMaintenance]);
 
   const byBuilding = {};
   predictions.forEach((p) => {
@@ -204,17 +229,23 @@ function Dashboard({ session }) {
         body { margin: 0; }
         .hover-card { transition: border-color 0.15s ease, box-shadow 0.15s ease; cursor: pointer; }
         .hover-card:hover { border-color: #C7CDD4; box-shadow: 0 4px 14px rgba(15,17,17,0.08); }
-        input:focus { outline: none; border-color: ${ACCENT} !important; box-shadow: 0 0 0 3px rgba(232,106,0,0.14); }
+        input:focus, textarea:focus { outline: none; border-color: ${ACCENT} !important; box-shadow: 0 0 0 3px rgba(232,106,0,0.14); }
         .nx-crumb { cursor: pointer; transition: color 0.15s ease; }
         .nx-crumb:hover { color: ${ACCENT}; }
         .nx-logout-btn:hover { background: #F1F3F6; }
+        .nx-maint-btn:hover { background: #F1F3F6; }
+        .nx-trend-card { transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease; cursor: pointer; }
+        .nx-trend-card:hover { border-color: #C7CDD4; box-shadow: 0 4px 14px rgba(15,17,17,0.10); transform: translateY(-1px); }
+        .nx-expand-btn { opacity: 0; transition: opacity 0.15s ease; }
+        .nx-trend-card:hover .nx-expand-btn { opacity: 1; }
+        .nx-modal-close:hover { background: #F1F3F6; }
         @keyframes nx-flow {
           0% { background-position: 0 0; }
           100% { background-position: 28px 0; }
         }
-        .nx-airflow-duct {
-          background-image: repeating-linear-gradient(90deg, rgba(138,147,163,0.55) 0 2px, transparent 2px 14px);
-          animation: nx-flow 1.1s linear infinite;
+        @keyframes nx-modal-in {
+          from { opacity: 0; transform: scale(0.97); }
+          to { opacity: 1; transform: scale(1); }
         }
       `}</style>
 
@@ -355,6 +386,16 @@ function Dashboard({ session }) {
           <NodeView
             buildingId={selectedBuildingId}
             history={byBuilding[selectedBuildingId] || []}
+            maintenanceLogs={maintenanceLogs.filter((m) => String(m.building_id) === String(selectedBuildingId))}
+            onLogMaintenance={async (component, date, notes) => {
+              await supabase.from('maintenance_log').insert({
+                building_id: String(selectedBuildingId),
+                component,
+                maintenance_date: date,
+                notes,
+              });
+              fetchMaintenance();
+            }}
             onBack={role !== 'engineer' ? () => { setView('units'); setSelectedBuildingId(null); } : null}
             onHome={
               role === 'admin'
@@ -474,63 +515,112 @@ function UnitCard({ unit, latest, onClick }) {
   );
 }
 
-/* ---------- AHU diagram: a single unit casing with compartments in-line ---------- */
+/* ---------- Gauge (speedometer-style) ---------- */
 
-function CompartmentPanel({ segment, reporting, isLast }) {
-  const meta = statusMeta[segment.status];
-  const Icon = segment.Icon;
+function polarPoint(cx, cy, r, angleDeg) {
+  const rad = (angleDeg * Math.PI) / 180;
+  return { x: cx + r * Math.cos(rad), y: cy - r * Math.sin(rad) };
+}
+
+function Gauge({ fraction, size = 108 }) {
+  const clamped = Math.max(0, Math.min(1, fraction));
+  const cx = 54, cy = 54, r = 42;
+  const startAngle = 180;
+  const endAngle = 180 - clamped * 180;
+  const p0 = polarPoint(cx, cy, r, 180);
+  const p1 = polarPoint(cx, cy, r, 0);
+  const pCurrent = polarPoint(cx, cy, r, endAngle);
+
+  const color = clamped < 0.6 ? '#1E7E34' : clamped < 1 ? '#946200' : '#CC0C39';
+
   return (
-    <>
-      <div style={{ ...styles.compartment, ...(segment.stats.length > 1 ? styles.compartmentWide : null) }}>
-        <div style={{ ...styles.compartmentHeader, background: meta.bg, borderBottom: `1px solid ${meta.border}` }}>
-          <div style={{ ...styles.compartmentIconWrap, background: '#FFFFFF', border: `1.5px solid ${meta.border}` }}>
-            <Icon size={18} color={meta.color} />
-          </div>
-          <div style={styles.compartmentHeaderText}>
-            <div style={styles.compartmentLabel}>{segment.label}</div>
-            <div style={{ ...styles.compartmentStatus, color: meta.color }}>{meta.label}</div>
-          </div>
-          <meta.Icon size={14} color={meta.color} style={{ marginLeft: 'auto' }} />
-        </div>
-
-        <div style={styles.compartmentBody}>
-          {segment.stats.length > 1 ? (
-            <div style={styles.gaugeGrid}>
-              {segment.stats.map((s, idx) => (
-                <div key={idx} style={styles.gaugeCell}>
-                  <div style={styles.gaugeValueGrid}>{s.value}</div>
-                  <div style={styles.gaugeLabel}>{s.label}</div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div style={styles.gaugeRow}>
-              <div style={styles.gaugeValue}>{segment.stats[0].value}</div>
-              <div style={styles.gaugeLabel}>{segment.stats[0].label}</div>
-            </div>
-          )}
-          <div style={styles.compartmentPlacement}>{NODE_PLACEMENT[segment.key]}</div>
-          <div style={{ ...styles.compartmentReporting, color: reporting ? '#1E7E34' : '#8A93A3' }}>
-            {reporting ? <Wifi size={10} /> : <WifiOff size={10} />} {reporting ? 'Reporting' : 'No data'}
-          </div>
-        </div>
-
-        {/* access-panel bolts for an equipment-casing feel */}
-        <span style={{ ...styles.bolt, top: 7, left: 7 }} />
-        <span style={{ ...styles.bolt, top: 7, right: 7 }} />
-        <span style={{ ...styles.bolt, bottom: 7, left: 7 }} />
-        <span style={{ ...styles.bolt, bottom: 7, right: 7 }} />
-      </div>
-
-      {!isLast && (
-        <div style={styles.compartmentDivider}>
-          <div className="nx-airflow-duct" style={styles.airflowDuct} />
-          <ArrowRight size={13} color="#8A93A3" style={styles.airflowArrow} />
-        </div>
-      )}
-    </>
+    <svg width={size} height={size * 0.62} viewBox="0 0 108 68">
+      <path
+        d={`M ${p0.x} ${p0.y} A ${r} ${r} 0 0 1 ${p1.x} ${p1.y}`}
+        fill="none" stroke="#E3E6E8" strokeWidth="9" strokeLinecap="round"
+      />
+      <path
+        d={`M ${p0.x} ${p0.y} A ${r} ${r} 0 0 1 ${pCurrent.x} ${pCurrent.y}`}
+        fill="none" stroke={color} strokeWidth="9" strokeLinecap="round"
+      />
+    </svg>
   );
 }
+
+/* ---------- Maintenance card with gauge + log-record form ---------- */
+
+function MaintenanceCard({ componentKey, label, Icon, logs, onLog }) {
+  const [open, setOpen] = useState(false);
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const componentLogs = logs.filter((m) => m.component === componentKey);
+  const last = componentLogs[0]; // already sorted desc by maintenance_date
+  const interval = SERVICE_INTERVAL_DAYS[componentKey];
+  const since = last ? daysAgo(last.maintenance_date) : null;
+  const fraction = since != null ? since / interval : null;
+  const daysRemaining = since != null ? Math.max(0, interval - since) : null;
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setSaving(true);
+    await onLog(componentKey, date, notes);
+    setSaving(false);
+    setNotes('');
+    setOpen(false);
+  }
+
+  return (
+    <div style={styles.maintCard}>
+      <div style={styles.maintCardTop}>
+        <Icon size={15} color="#565959" />
+        <span style={styles.maintCardLabel}>{label}</span>
+      </div>
+
+      {fraction != null ? (
+        <>
+          <Gauge fraction={fraction} />
+          <div style={styles.maintDaysRemaining}>
+            {daysRemaining}d <span style={styles.maintDaysRemainingSub}>to next service</span>
+          </div>
+          <div style={styles.maintLastServiced}>
+            Last serviced {since}d ago · {new Date(last.maintenance_date).toLocaleDateString()}
+          </div>
+        </>
+      ) : (
+        <div style={styles.maintNoRecord}>No maintenance logged yet</div>
+      )}
+
+      {!open ? (
+        <button className="nx-maint-btn" style={styles.maintLogBtn} onClick={() => setOpen(true)}>
+          <Plus size={12} /> Log maintenance
+        </button>
+      ) : (
+        <form onSubmit={handleSubmit} style={styles.maintForm}>
+          <label style={styles.maintFormLabel}>Date</label>
+          <input
+            type="date" value={date} onChange={(e) => setDate(e.target.value)}
+            style={styles.maintFormInput} required
+          />
+          <label style={styles.maintFormLabel}>Notes (optional)</label>
+          <textarea
+            value={notes} onChange={(e) => setNotes(e.target.value)}
+            style={styles.maintFormTextarea} rows={2} placeholder="What was done…"
+          />
+          <div style={styles.maintFormBtnRow}>
+            <button type="button" style={styles.maintFormCancel} onClick={() => setOpen(false)}>Cancel</button>
+            <button type="submit" style={styles.maintFormSave} disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
+/* ---------- AHU diagram: photo with pins ---------- */
 
 function AhuPin({ pos, segment, reporting }) {
   const meta = statusMeta[segment.status];
@@ -590,21 +680,111 @@ function PinCardBody({ segment, meta, Icon, reporting }) {
   );
 }
 
-function NodeView({ buildingId, history, onBack, onHome }) {
+/* ---------- Sensor trend chart (shared by card + modal) ---------- */
+
+function SensorLineChart({ data, s, height, fontSize = 9.5, showGrid = true }) {
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <LineChart data={data} margin={{ top: 8, right: 14, left: 4, bottom: 24 }}>
+        {showGrid && <CartesianGrid stroke="#E3E6E8" strokeDasharray="3 3" vertical={false} />}
+        <XAxis
+          dataKey="time"
+          tick={{ fill: '#565959', fontSize }}
+          axisLine={{ stroke: '#D5D9D9' }}
+          tickLine={false}
+          interval="preserveStartEnd"
+          label={{ value: 'Time', position: 'insideBottom', offset: -16, fontSize: fontSize + 0.5, fill: '#565959', fontWeight: 600 }}
+        />
+        <YAxis
+          tick={{ fill: '#565959', fontSize }}
+          axisLine={{ stroke: '#D5D9D9' }}
+          tickLine={false}
+          width={48}
+          label={{
+            value: s.unit ? `${s.label} (${s.unit})` : s.label,
+            angle: -90,
+            position: 'insideLeft',
+            fontSize: fontSize + 0.5,
+            fill: '#565959',
+            fontWeight: 600,
+          }}
+        />
+        <Tooltip
+          contentStyle={{ background: '#131A2C', border: 'none', borderRadius: 8, fontSize: 12 }}
+          labelStyle={{ color: '#D1D5DB' }}
+          itemStyle={{ color: s.color }}
+          formatter={(value) => [`${value}${s.unit ? ' ' + s.unit : ''}`, s.label]}
+        />
+        <Line type="monotone" dataKey="value" stroke={s.color} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+function TrendCard({ s, data, hasData, onExpand }) {
+  return (
+    <div className="nx-trend-card" style={styles.trendCard} onClick={onExpand}>
+      <div style={styles.trendCardHeader}>
+        <span style={{ ...styles.trendDot, background: s.color }} />
+        <span style={styles.trendCardTitle}>{s.label}</span>
+        {s.unit && <span style={styles.trendCardUnit}>({s.unit})</span>}
+        <button className="nx-expand-btn" style={styles.expandBtn} onClick={(e) => { e.stopPropagation(); onExpand(); }} aria-label="Expand chart">
+          <Maximize2 size={12} />
+        </button>
+      </div>
+      {hasData ? (
+        <SensorLineChart data={data} s={s} height={150} />
+      ) : (
+        <div style={styles.trendEmpty}>No data yet</div>
+      )}
+    </div>
+  );
+}
+
+function TrendModal({ s, data, hasData, onClose }) {
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'Escape') onClose();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div style={styles.modalOverlay} onClick={onClose}>
+      <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+        <div style={styles.modalHeader}>
+          <div style={styles.modalHeaderLeft}>
+            <span style={{ ...styles.trendDot, background: s.color, width: 11, height: 11 }} />
+            <span style={styles.modalTitle}>{s.label}</span>
+            {s.unit && <span style={styles.modalUnit}>({s.unit})</span>}
+          </div>
+          <button className="nx-modal-close" style={styles.modalCloseBtn} onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+        <div style={styles.modalBody}>
+          {hasData ? (
+            <SensorLineChart data={data} s={s} height={440} fontSize={12} />
+          ) : (
+            <div style={{ ...styles.trendEmpty, padding: '60px 0' }}>No data yet</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NodeView({ buildingId, history, maintenanceLogs, onLogMaintenance, onBack, onHome }) {
   const latest = history[0];
   const nodes = getNodeStatuses(latest);
   const info = getUnitInfo(buildingId);
   const overallMeta = statusMeta[nodes.overall];
   const OverallIcon = overallMeta.Icon;
   const reporting = isReporting(latest);
+  const [expandedKey, setExpandedKey] = useState(null);
 
-  const chartData = [...history]
-    .slice(0, 20)
-    .reverse()
-    .map((p) => ({
-      time: new Date(p.scored_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      life: p.predicted_remaining_life_days,
-    }));
+  const trendHistory = [...history].slice(0, 30).reverse();
 
   const segments = [
     {
@@ -629,6 +809,18 @@ function NodeView({ buildingId, history, onBack, onHome }) {
       ],
     },
   ];
+
+  const sensorDataByKey = {};
+  SENSOR_LINES.forEach((s) => {
+    sensorDataByKey[s.key] = trendHistory.map((p) => ({
+      time: new Date(p.scored_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      value: p[s.key],
+    }));
+  });
+
+  const expandedSensor = expandedKey ? SENSOR_LINES.find((s) => s.key === expandedKey) : null;
+  const expandedData = expandedKey ? sensorDataByKey[expandedKey] : null;
+  const expandedHasData = expandedData ? expandedData.some((d) => d.value != null) : false;
 
   return (
     <div style={styles.nodeViewWrap}>
@@ -678,24 +870,46 @@ function NodeView({ buildingId, history, onBack, onHome }) {
         </div>
       </div>
 
-      {chartData.length > 1 && (
+      <div style={styles.card}>
+        <div style={styles.cardTitle}>Maintenance</div>
+        <div style={styles.maintGrid}>
+          <MaintenanceCard componentKey="motor" label="Motor" Icon={Cpu} logs={maintenanceLogs} onLog={onLogMaintenance} />
+          <MaintenanceCard componentKey="belt" label="Belt" Icon={Wind} logs={maintenanceLogs} onLog={onLogMaintenance} />
+          <MaintenanceCard componentKey="filter" label="Filter" Icon={FilterIcon} logs={maintenanceLogs} onLog={onLogMaintenance} />
+        </div>
+      </div>
+
+      {trendHistory.length > 1 && (
         <div style={styles.card}>
-          <div style={styles.cardTitle}>Remaining life trend</div>
-          <div style={{ marginTop: 10 }}>
-            <ResponsiveContainer width="100%" height={160}>
-              <LineChart data={chartData} margin={{ top: 4, right: 4, left: -12, bottom: 0 }}>
-                <XAxis dataKey="time" tick={{ fill: '#8A93A3', fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: '#8A93A3', fontSize: 10 }} axisLine={false} tickLine={false} />
-                <Tooltip
-                  contentStyle={{ background: '#131A2C', border: 'none', borderRadius: 8, fontSize: 11 }}
-                  labelStyle={{ color: '#D1D5DB' }}
-                  itemStyle={{ color: '#FFA968' }}
+          <div style={styles.trendSectionHeaderRow}>
+            <div style={styles.cardTitle}>Sensor trends</div>
+            <div style={styles.trendSectionHint}>Click any chart to view full size</div>
+          </div>
+          <div style={styles.trendGrid}>
+            {SENSOR_LINES.map((s) => {
+              const data = sensorDataByKey[s.key];
+              const hasData = data.some((d) => d.value != null);
+              return (
+                <TrendCard
+                  key={s.key}
+                  s={s}
+                  data={data}
+                  hasData={hasData}
+                  onExpand={() => setExpandedKey(s.key)}
                 />
-                <Line type="monotone" dataKey="life" stroke={ACCENT} strokeWidth={2.5} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
+              );
+            })}
           </div>
         </div>
+      )}
+
+      {expandedSensor && (
+        <TrendModal
+          s={expandedSensor}
+          data={expandedData}
+          hasData={expandedHasData}
+          onClose={() => setExpandedKey(null)}
+        />
       )}
     </div>
   );
@@ -743,11 +957,11 @@ const styles = {
   errorBanner: { background: '#FDECEA', color: '#CC0C39', padding: '12px 16px', borderRadius: 10, fontSize: 13, marginBottom: 20, fontWeight: 600, border: '1px solid #F5C6CE' },
 
   cardGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16, marginBottom: 36 },
-  card: { background: '#FFFFFF', border: '1px solid #E3E6E8', borderRadius: 12, padding: 18 },
+  card: { background: '#FFFFFF', border: '1px solid #E3E6E8', borderRadius: 12, padding: 18, marginTop: 18 },
   cardTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
   cardTopLeft: { display: 'flex', alignItems: 'center', gap: 10 },
   cardEmoji: { width: 38, height: 38, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  cardTitle: { fontWeight: 600, fontSize: 15.5, color: '#0F1111' },
+  cardTitle: { fontWeight: 600, fontSize: 15.5, color: '#0F1111', marginBottom: 4 },
   cardSub: { fontSize: 12, color: '#565959' },
   ratingChip: { fontSize: 11.5, fontWeight: 700, padding: '5px 9px', borderRadius: 7, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 5 },
   statsRow: { display: 'flex', gap: 10, marginBottom: 12 },
@@ -769,59 +983,28 @@ const styles = {
   logTime: { fontSize: 11, color: '#8A93A3', whiteSpace: 'nowrap', fontWeight: 500 },
   logEmpty: { padding: 20, textAlign: 'center', color: '#8A93A3', fontSize: 13 },
 
-  nodeViewWrap: { display: 'flex', flexDirection: 'column', gap: 18 },
-  ahuBanner: { display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', borderRadius: 12 },
+  nodeViewWrap: { display: 'flex', flexDirection: 'column', gap: 0 },
+  ahuBanner: { display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', borderRadius: 12, marginBottom: 18 },
 
   diagramCard: { background: '#FFFFFF', border: '1px solid #E3E6E8', borderRadius: 12, padding: '20px 24px 26px' },
   diagramHeaderRow: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 18, flexWrap: 'wrap', gap: 8 },
   diagramTitle: { fontWeight: 600, fontSize: 15.5, color: '#0F1111' },
   diagramTag: { fontSize: 11, fontWeight: 700, color: '#8A93A3', letterSpacing: 0.4, textTransform: 'uppercase' },
 
-  navBackRow: { display: 'flex', gap: 8, marginBottom: 4 },
+  navBackRow: { display: 'flex', gap: 8, marginBottom: 12 },
   navBackBtn: {
     display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: '#0F1111',
     background: '#FFFFFF', border: '1px solid #D5D9D9', borderRadius: 8, padding: '7px 12px', cursor: 'pointer',
   },
 
-  ahuPhotoRow: {
-    display: 'flex',
-    justifyContent: 'center',
-    width: '100%',
-  },
-  ahuPhotoOuter: {
-    position: 'relative',
-    width: '100%',
-    maxWidth: 760,
-    margin: '150px 0 150px',
-  },
-  ahuPhotoInner: {
-    borderRadius: 12,
-    overflow: 'hidden',
-    background: '#FAFBFC',
-    border: '1px solid #E3E6E8',
-  },
+  ahuPhotoRow: { display: 'flex', justifyContent: 'center', width: '100%' },
+  ahuPhotoOuter: { position: 'relative', width: '100%', maxWidth: 760, margin: '150px 0 150px' },
+  ahuPhotoInner: { borderRadius: 12, overflow: 'hidden', background: '#FAFBFC', border: '1px solid #E3E6E8' },
   ahuPhotoImg: { display: 'block', width: '100%', height: 'auto' },
 
-  pinDot: {
-    width: 9,
-    height: 9,
-    borderRadius: '50%',
-    border: '2px solid #fff',
-    boxShadow: '0 0 0 1.5px rgba(15,17,17,0.22), 0 1px 4px rgba(15,17,17,0.28)',
-    flexShrink: 0,
-    zIndex: 2,
-  },
+  pinDot: { width: 9, height: 9, borderRadius: '50%', border: '2px solid #fff', boxShadow: '0 0 0 1.5px rgba(15,17,17,0.22), 0 1px 4px rgba(15,17,17,0.28)', flexShrink: 0, zIndex: 2 },
   pinLine: { width: 1.5, height: 34, flexShrink: 0, opacity: 0.7 },
-  pinCard: {
-    background: '#FFFFFF',
-    border: '1.5px solid',
-    borderRadius: 8,
-    padding: '8px 10px',
-    width: 132,
-    boxShadow: '0 4px 12px rgba(15,17,17,0.10)',
-    marginBottom: 2,
-    marginTop: 2,
-  },
+  pinCard: { background: '#FFFFFF', border: '1.5px solid', borderRadius: 8, padding: '8px 10px', width: 132, boxShadow: '0 4px 12px rgba(15,17,17,0.10)', marginBottom: 2, marginTop: 2 },
   pinCardHeader: { display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6, flexWrap: 'nowrap' },
   pinCardLabel: { fontWeight: 700, fontSize: 10.5, color: '#0F1111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   pinStatusChip: { fontSize: 7.5, fontWeight: 700, padding: '2px 6px', borderRadius: 5, marginLeft: 'auto', whiteSpace: 'nowrap' },
@@ -832,81 +1015,67 @@ const styles = {
   pinStatLabel: { fontSize: 7.5, color: '#8A93A3', fontWeight: 600, letterSpacing: 0.2, marginTop: 1 },
   pinReporting: { display: 'flex', alignItems: 'center', gap: 3, fontSize: 7.5, fontWeight: 600, paddingTop: 5, borderTop: '1px solid #F1F3F6' },
 
-  ahuUnit: { display: 'flex', alignItems: 'center', gap: 0, width: '100%' },
+  maintGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 },
+  maintCard: { background: '#F7F8FA', border: '1px solid #EFF1F4', borderRadius: 10, padding: '14px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' },
+  maintCardTop: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 },
+  maintCardLabel: { fontWeight: 700, fontSize: 13, color: '#0F1111' },
+  maintDaysRemaining: { fontSize: 18, fontWeight: 700, color: '#0F1111', marginTop: 4 },
+  maintDaysRemainingSub: { fontSize: 10, fontWeight: 600, color: '#8A93A3' },
+  maintLastServiced: { fontSize: 10.5, color: '#8A93A3', marginTop: 4, marginBottom: 10 },
+  maintNoRecord: { fontSize: 11.5, color: '#8A93A3', margin: '18px 0 12px' },
+  maintLogBtn: { display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#0F1111', background: '#FFFFFF', border: '1px solid #D5D9D9', borderRadius: 8, padding: '6px 12px', cursor: 'pointer' },
+  maintForm: { width: '100%', textAlign: 'left', marginTop: 4 },
+  maintFormLabel: { fontSize: 10, fontWeight: 700, color: '#565959', display: 'block', marginBottom: 3, marginTop: 6 },
+  maintFormInput: { width: '100%', border: '1.5px solid #D5D9D9', borderRadius: 6, padding: '6px 8px', fontSize: 12, fontFamily: "'Inter', sans-serif" },
+  maintFormTextarea: { width: '100%', border: '1.5px solid #D5D9D9', borderRadius: 6, padding: '6px 8px', fontSize: 12, fontFamily: "'Inter', sans-serif", resize: 'vertical' },
+  maintFormBtnRow: { display: 'flex', gap: 6, marginTop: 8 },
+  maintFormCancel: { flex: 1, fontSize: 11.5, fontWeight: 600, color: '#565959', background: '#FFFFFF', border: '1px solid #D5D9D9', borderRadius: 6, padding: '6px 0', cursor: 'pointer' },
+  maintFormSave: { flex: 1, fontSize: 11.5, fontWeight: 700, color: '#fff', background: ACCENT, border: 'none', borderRadius: 6, padding: '6px 0', cursor: 'pointer' },
 
-  ahuCasing: {
-    position: 'relative',
-    flex: 1,
-    margin: '0 2px',
-    background: 'linear-gradient(180deg, #F7F8FA 0%, #ECEFF3 100%)',
-    border: '2px solid #C7CDD4',
-    borderRadius: 14,
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.6), inset 0 -2px 6px rgba(15,17,17,0.04)',
-    padding: '38px 20px 16px',
-  },
-  ahuCasingLabel: {
-    position: 'absolute',
-    top: 12,
-    left: '50%',
-    transform: 'translateX(-50%)',
-    fontSize: 9,
-    fontWeight: 700,
-    letterSpacing: 1.2,
-    color: '#9AA3B0',
-  },
-  ahuInterior: { display: 'flex', alignItems: 'stretch' },
-
-  bolt: {
-    position: 'absolute',
-    width: 6,
-    height: 6,
-    borderRadius: '50%',
-    background: '#B7BEC9',
-    boxShadow: 'inset 0 1px 1px rgba(0,0,0,0.25)',
+  trendSectionHeaderRow: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 4 },
+  trendSectionHint: { fontSize: 11, color: '#8A93A3', fontWeight: 500 },
+  trendGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 20, marginTop: 14 },
+  trendCard: { background: '#F7F8FA', border: '1px solid #EFF1F4', borderRadius: 10, padding: '14px 14px 10px', position: 'relative' },
+  trendCardHeader: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 },
+  trendDot: { width: 8, height: 8, borderRadius: '50%', flexShrink: 0 },
+  trendCardTitle: { fontSize: 12.5, fontWeight: 700, color: '#0F1111' },
+  trendCardUnit: { fontSize: 10.5, color: '#8A93A3' },
+  trendEmpty: { fontSize: 11, color: '#8A93A3', padding: '20px 0', textAlign: 'center' },
+  expandBtn: {
+    marginLeft: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    width: 22, height: 22, borderRadius: 6, border: '1px solid #D5D9D9', background: '#FFFFFF',
+    color: '#565959', cursor: 'pointer', flexShrink: 0,
   },
 
-  compartment: {
-    position: 'relative',
-    flex: 1,
-    minWidth: 140,
-    background: '#FFFFFF',
-    border: '1.5px solid #E3E6E8',
-    borderRadius: 10,
-    overflow: 'hidden',
-    display: 'flex',
-    flexDirection: 'column',
+  modalOverlay: {
+    position: 'fixed', inset: 0, background: 'rgba(15,17,17,0.55)', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 24,
   },
-  compartmentHeader: { display: 'flex', alignItems: 'center', gap: 8, padding: '9px 11px' },
-  compartmentIconWrap: { width: 30, height: 30, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  compartmentHeaderText: { display: 'flex', flexDirection: 'column' },
-  compartmentLabel: { fontWeight: 700, fontSize: 12.5, color: '#0F1111' },
-  compartmentStatus: { fontSize: 10, fontWeight: 700 },
-
-  compartmentBody: { padding: '14px 12px 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', flex: 1 },
-  gaugeRow: { marginBottom: 10 },
-  gaugeValue: { fontSize: 18, fontWeight: 700, color: '#0F1111', lineHeight: 1.2 },
-  gaugeLabel: { fontSize: 9.5, color: '#8A93A3', fontWeight: 600, letterSpacing: 0.3, marginTop: 2 },
-  gaugeGrid: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '10px 14px',
-    width: '100%',
-    marginBottom: 10,
+  modalCard: {
+    background: '#FFFFFF', borderRadius: 14, width: '100%', maxWidth: 880, maxHeight: '88vh',
+    display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(15,17,17,0.35)',
+    animation: 'nx-modal-in 0.15s ease',
   },
-  gaugeCell: {
-    background: '#F7F8FA',
-    border: '1px solid #EFF1F4',
-    borderRadius: 8,
-    padding: '8px 6px',
+  modalHeader: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '18px 22px', borderBottom: '1px solid #E3E6E8',
   },
-  gaugeValueGrid: { fontSize: 14, fontWeight: 700, color: '#0F1111', lineHeight: 1.2 },
-  compartmentWide: { minWidth: 210, flex: 1.5 },
-  compartmentPlacement: { fontSize: 10, color: '#8A93A3', lineHeight: 1.4, marginBottom: 10, minHeight: 28 },
-  compartmentReporting: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, marginTop: 'auto' },
+  modalHeaderLeft: { display: 'flex', alignItems: 'center', gap: 8 },
+  modalTitle: { fontSize: 16, fontWeight: 700, color: '#0F1111' },
+  modalUnit: { fontSize: 12.5, color: '#8A93A3', fontWeight: 600 },
+  modalCloseBtn: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32,
+    borderRadius: 8, border: '1px solid #D5D9D9', background: '#FFFFFF', color: '#0F1111', cursor: 'pointer',
+  },
+  modalBody: { padding: '20px 24px 28px', overflow: 'auto' },
 
-  compartmentDivider: { position: 'relative', width: 26, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  airflowDuct: { width: '100%', height: 6, borderRadius: 3, background: '#EFF1F4', border: '1px solid #D5D9D9' },
-  airflowArrow: { position: 'absolute' },
-
-  segmentPlacement: { fontSize: 10, color: '#8A93A3', lineHeight: 1.4, marginBottom: 10, minHeight: 28 },
+  trendGridLegacy: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 },
 };
+
+
+
+
+
+
+
+
