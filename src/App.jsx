@@ -8,6 +8,7 @@ import { getAllowedBuildingIds, NODE_PLACEMENT } from './accessConfig';
 import {
   Zap, Search, LogOut, Factory, CheckCircle2, AlertTriangle, AlertOctagon,
   Clock, ChevronRight, ChevronDown, ChevronUp, MapPin, Cpu, Wind, Filter as FilterIcon, Wifi, WifiOff, ShieldCheck, Plus, History,
+  HelpCircle, Phone, Mail, BookOpen, X,
 } from 'lucide-react';
 
 const REFRESH_INTERVAL_MS = 15000;
@@ -15,6 +16,11 @@ const STALE_THRESHOLD_MS = 30 * 60 * 1000;
 const ACCENT = '#E86A00';
 
 const AHU_IMAGE_SRC = '/ahu-schematic.png';
+
+const HELPLINE_NUMBER = '+91 7025472024';
+const HELPLINE_TEL = '+917025472024';
+const SUPPORT_EMAIL = 'kerala.nexora@gmail.com';
+const USER_MANUAL_URL = '/nexora-user-manual.pdf';
 
 const PIN_POSITIONS = {
   filter: { x: 81, y: 40, side: 'top', dist: 140 },
@@ -105,6 +111,7 @@ function Dashboard({ session }) {
   const [error, setError] = useState(null);
   const [lastFetch, setLastFetch] = useState(null);
   const [search, setSearch] = useState('');
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const role = session.user.user_metadata?.role || 'admin';
   const scope = session.user.user_metadata?.scope || 'ALL';
@@ -223,6 +230,9 @@ function Dashboard({ session }) {
         .nx-crumb:hover { color: ${ACCENT}; }
         .nx-logout-btn:hover { background: #F1F3F6; }
         .nx-maint-btn:hover { background: #F1F3F6; }
+        .nx-help-btn:hover { background: #F1F3F6; }
+        .nx-help-link:hover { border-color: ${ACCENT}; box-shadow: 0 4px 14px rgba(15,17,17,0.08); }
+        .nx-help-close:hover { background: #F1F3F6; }
       `}</style>
 
       <nav style={styles.nav}>
@@ -243,6 +253,9 @@ function Dashboard({ session }) {
           <div style={styles.roleBadge}>
             <ShieldCheck size={12} /> {role.charAt(0).toUpperCase() + role.slice(1)}
           </div>
+          <button className="nx-help-btn" style={styles.helpBtn} onClick={() => setHelpOpen(true)}>
+            <HelpCircle size={13} /> Help
+          </button>
           <div style={styles.avatar}>{session.user.email[0].toUpperCase()}</div>
           <button className="nx-logout-btn" style={styles.logoutBtn} onClick={() => supabase.auth.signOut()}>
             <LogOut size={13} /> Log out
@@ -414,7 +427,60 @@ function Dashboard({ session }) {
         )}
       </div>
 
+      {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
+
       <ChatBot role={role} scope={scope} />
+    </div>
+  );
+}
+
+function HelpModal({ onClose }) {
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'Escape') onClose();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div style={styles.helpOverlay} onClick={onClose}>
+      <div style={styles.helpModal} onClick={(e) => e.stopPropagation()}>
+        <div style={styles.helpModalHeader}>
+          <div style={styles.helpModalTitle}>
+            <HelpCircle size={18} color={ACCENT} /> Help &amp; support
+          </div>
+          <button className="nx-help-close" style={styles.helpCloseBtn} onClick={onClose} aria-label="Close">
+            <X size={16} color="#565959" />
+          </button>
+        </div>
+
+        <div style={styles.helpModalBody}>
+          <a className="nx-help-link" href={`tel:${HELPLINE_TEL}`} style={styles.helpLinkCard}>
+            <div style={styles.helpLinkIcon}><Phone size={16} color={ACCENT} /></div>
+            <div>
+              <div style={styles.helpLinkLabel}>Helpline</div>
+              <div style={styles.helpLinkValue}>{HELPLINE_NUMBER}</div>
+            </div>
+          </a>
+
+          <a className="nx-help-link" href={`mailto:${SUPPORT_EMAIL}`} style={styles.helpLinkCard}>
+            <div style={styles.helpLinkIcon}><Mail size={16} color={ACCENT} /></div>
+            <div>
+              <div style={styles.helpLinkLabel}>Email support</div>
+              <div style={styles.helpLinkValue}>{SUPPORT_EMAIL}</div>
+            </div>
+          </a>
+
+          <a className="nx-help-link" href={USER_MANUAL_URL} target="_blank" rel="noreferrer" style={styles.helpLinkCard}>
+            <div style={styles.helpLinkIcon}><BookOpen size={16} color={ACCENT} /></div>
+            <div>
+              <div style={styles.helpLinkLabel}>User manual</div>
+              <div style={styles.helpLinkValue}>Guide to reading unit status &amp; logging maintenance</div>
+            </div>
+          </a>
+        </div>
+      </div>
     </div>
   );
 }
@@ -810,6 +876,7 @@ const styles = {
   searchInput: { border: 'none', background: 'transparent', fontSize: 14, width: '100%', fontFamily: "'Inter', sans-serif", color: '#0F1111' },
   navRight: { display: 'flex', alignItems: 'center', gap: 12 },
   roleBadge: { display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: ACCENT, background: 'rgba(232,106,0,0.14)', padding: '5px 10px', borderRadius: 7 },
+  helpBtn: { display: 'flex', alignItems: 'center', gap: 6, border: '1px solid #3A465F', background: 'transparent', borderRadius: 8, padding: '7px 13px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', color: '#FFFFFF' },
   avatar: { width: 32, height: 32, borderRadius: 8, background: ACCENT, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12 },
   logoutBtn: { border: '1px solid #3A465F', background: 'transparent', borderRadius: 8, padding: '7px 13px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', color: '#FFFFFF', display: 'flex', alignItems: 'center', gap: 6 },
 
@@ -925,4 +992,33 @@ const styles = {
   maintReportDate: { fontSize: 13, fontWeight: 600, color: '#0F1111' },
   maintReportNotes: { fontSize: 12, color: '#565959', marginTop: 2 },
   maintReportAgo: { fontSize: 11, color: '#8A93A3', whiteSpace: 'nowrap', fontWeight: 500 },
+
+  helpOverlay: {
+    position: 'fixed', inset: 0, background: 'rgba(15,17,17,0.45)', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16,
+  },
+  helpModal: {
+    background: '#FFFFFF', borderRadius: 14, width: '100%', maxWidth: 380,
+    boxShadow: '0 20px 60px rgba(15,17,17,0.25)', overflow: 'hidden',
+  },
+  helpModalHeader: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '16px 18px', borderBottom: '1px solid #F1F3F6',
+  },
+  helpModalTitle: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 15.5, fontWeight: 700, color: '#0F1111' },
+  helpCloseBtn: {
+    border: 'none', background: 'transparent', borderRadius: 8, width: 28, height: 28,
+    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+  },
+  helpModalBody: { display: 'flex', flexDirection: 'column', gap: 10, padding: 16 },
+  helpLinkCard: {
+    display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 10,
+    border: '1px solid #E3E6E8', textDecoration: 'none', transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+  },
+  helpLinkIcon: {
+    width: 34, height: 34, borderRadius: 9, background: 'rgba(232,106,0,0.12)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  helpLinkLabel: { fontSize: 11, fontWeight: 700, color: '#8A93A3', marginBottom: 2 },
+  helpLinkValue: { fontSize: 13.5, fontWeight: 600, color: '#0F1111' },
 };
