@@ -7,7 +7,7 @@ import { REGIONS, getUnitInfo } from './locationConfig';
 import { getAllowedBuildingIds, NODE_PLACEMENT } from './accessConfig';
 import {
   Zap, Search, LogOut, Factory, CheckCircle2, AlertTriangle, AlertOctagon,
-  Clock, ChevronRight, MapPin, Cpu, Wind, Filter as FilterIcon, Wifi, WifiOff, ShieldCheck, Plus,
+  Clock, ChevronRight, ChevronDown, ChevronUp, MapPin, Cpu, Wind, Filter as FilterIcon, Wifi, WifiOff, ShieldCheck, Plus, History,
 } from 'lucide-react';
 
 const REFRESH_INTERVAL_MS = 15000;
@@ -658,31 +658,42 @@ function PinCardBody({ segment, meta, Icon, reporting }) {
   );
 }
 
-/* ---------- Maintenance history report (view-only, all roles) ---------- */
+/* ---------- Maintenance history report (view-only, all roles, collapsed by default) ---------- */
 
 const COMPONENT_LABELS = { motor: 'Motor', belt: 'Belt', filter: 'Filter' };
 
 function MaintenanceReport({ logs }) {
+  const [open, setOpen] = useState(false);
   const sorted = [...logs].sort((a, b) => new Date(b.maintenance_date) - new Date(a.maintenance_date));
 
   return (
     <div style={styles.card}>
-      <div style={styles.cardTitle}>Maintenance history</div>
-      {sorted.length === 0 ? (
-        <div style={styles.maintReportEmpty}>No maintenance has been logged for this unit yet.</div>
-      ) : (
-        <div style={styles.maintReportList}>
-          {sorted.map((log) => (
-            <div key={log.id} style={styles.maintReportRow}>
-              <div style={styles.maintReportComponent}>{COMPONENT_LABELS[log.component] || log.component}</div>
-              <div style={styles.maintReportMain}>
-                <div style={styles.maintReportDate}>{new Date(log.maintenance_date).toLocaleDateString()}</div>
-                {log.notes && <div style={styles.maintReportNotes}>{log.notes}</div>}
-              </div>
-              <div style={styles.maintReportAgo}>{daysAgo(log.maintenance_date)}d ago</div>
-            </div>
-          ))}
+      <button style={styles.maintHistoryToggle} onClick={() => setOpen(!open)}>
+        <div style={styles.maintHistoryToggleLeft}>
+          <History size={16} color="#565959" />
+          <span style={styles.cardTitle}>Maintenance history</span>
+          <span style={styles.maintHistoryCount}>{sorted.length}</span>
         </div>
+        {open ? <ChevronUp size={16} color="#8A93A3" /> : <ChevronDown size={16} color="#8A93A3" />}
+      </button>
+
+      {open && (
+        sorted.length === 0 ? (
+          <div style={styles.maintReportEmpty}>No maintenance has been logged for this unit yet.</div>
+        ) : (
+          <div style={styles.maintReportList}>
+            {sorted.map((log) => (
+              <div key={log.id} style={styles.maintReportRow}>
+                <div style={styles.maintReportComponent}>{COMPONENT_LABELS[log.component] || log.component}</div>
+                <div style={styles.maintReportMain}>
+                  <div style={styles.maintReportDate}>{new Date(log.maintenance_date).toLocaleDateString()}</div>
+                  {log.notes && <div style={styles.maintReportNotes}>{log.notes}</div>}
+                </div>
+                <div style={styles.maintReportAgo}>{daysAgo(log.maintenance_date)}d ago</div>
+              </div>
+            ))}
+          </div>
+        )
       )}
     </div>
   );
@@ -831,7 +842,7 @@ const styles = {
   cardTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
   cardTopLeft: { display: 'flex', alignItems: 'center', gap: 10 },
   cardEmoji: { width: 38, height: 38, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  cardTitle: { fontWeight: 600, fontSize: 15.5, color: '#0F1111', marginBottom: 4 },
+  cardTitle: { fontWeight: 600, fontSize: 15.5, color: '#0F1111' },
   cardSub: { fontSize: 12, color: '#565959' },
   ratingChip: { fontSize: 11.5, fontWeight: 700, padding: '5px 9px', borderRadius: 7, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 5 },
   statsRow: { display: 'flex', gap: 10, marginBottom: 12 },
@@ -903,8 +914,11 @@ const styles = {
   maintFormCancel: { flex: 1, fontSize: 11.5, fontWeight: 600, color: '#565959', background: '#FFFFFF', border: '1px solid #D5D9D9', borderRadius: 6, padding: '6px 0', cursor: 'pointer' },
   maintFormSave: { flex: 1, fontSize: 11.5, fontWeight: 700, color: '#fff', background: ACCENT, border: 'none', borderRadius: 6, padding: '6px 0', cursor: 'pointer' },
 
-  maintReportEmpty: { fontSize: 12.5, color: '#8A93A3', padding: '10px 0' },
-  maintReportList: { display: 'flex', flexDirection: 'column', gap: 2 },
+  maintHistoryToggle: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left' },
+  maintHistoryToggleLeft: { display: 'flex', alignItems: 'center', gap: 8 },
+  maintHistoryCount: { fontSize: 11, fontWeight: 700, color: '#8A93A3', background: '#F1F3F6', borderRadius: 10, padding: '1px 8px' },
+  maintReportEmpty: { fontSize: 12.5, color: '#8A93A3', padding: '14px 0 0' },
+  maintReportList: { display: 'flex', flexDirection: 'column', gap: 2, marginTop: 14 },
   maintReportRow: { display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 4px', borderBottom: '1px solid #F1F3F6' },
   maintReportComponent: { fontSize: 11.5, fontWeight: 700, color: ACCENT, background: '#FFF3E5', borderRadius: 6, padding: '3px 8px', flexShrink: 0, minWidth: 52, textAlign: 'center' },
   maintReportMain: { flex: 1, minWidth: 0 },
