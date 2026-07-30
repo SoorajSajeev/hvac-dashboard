@@ -364,14 +364,14 @@ function Dashboard({ session }) {
             history={byBuilding[selectedBuildingId] || []}
             maintenanceLogs={maintenanceLogs.filter((m) => String(m.building_id) === String(selectedBuildingId))}
             canLogMaintenance={role === 'engineer'}
-            onLogMaintenance={async (component, date, notes, engineerName, designation) => {
+            onLogMaintenance={async (component, date, notes) => {
               await supabase.from('maintenance_log').insert({
                 building_id: String(selectedBuildingId),
                 component,
                 maintenance_date: date,
                 notes,
-                engineer_name: engineerName,
-                designation,
+                engineer_name: session.user.user_metadata?.full_name || session.user.email,
+                designation: session.user.user_metadata?.designation || null,
               });
               fetchMaintenance();
             }}
@@ -531,8 +531,6 @@ function MaintenanceCard({ componentKey, label, Icon, logs, canLog, onLog }) {
   const [open, setOpen] = useState(false);
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState('');
-  const [engineerName, setEngineerName] = useState('');
-  const [designation, setDesignation] = useState('');
   const [saving, setSaving] = useState(false);
 
   const componentLogs = logs.filter((m) => m.component === componentKey);
@@ -545,11 +543,9 @@ function MaintenanceCard({ componentKey, label, Icon, logs, canLog, onLog }) {
   async function handleSubmit(e) {
     e.preventDefault();
     setSaving(true);
-    await onLog(componentKey, date, notes, engineerName, designation);
+    await onLog(componentKey, date, notes);
     setSaving(false);
     setNotes('');
-    setEngineerName('');
-    setDesignation('');
     setOpen(false);
   }
 
@@ -582,16 +578,6 @@ function MaintenanceCard({ componentKey, label, Icon, logs, canLog, onLog }) {
           </button>
         ) : (
           <form onSubmit={handleSubmit} style={styles.maintForm}>
-            <label style={styles.maintFormLabel}>Your name</label>
-            <input
-              type="text" value={engineerName} onChange={(e) => setEngineerName(e.target.value)}
-              style={styles.maintFormInput} required placeholder="Full name"
-            />
-            <label style={styles.maintFormLabel}>Designation</label>
-            <input
-              type="text" value={designation} onChange={(e) => setDesignation(e.target.value)}
-              style={styles.maintFormInput} required placeholder="e.g. Maintenance Engineer"
-            />
             <label style={styles.maintFormLabel}>Date</label>
             <input
               type="date" value={date} onChange={(e) => setDate(e.target.value)}

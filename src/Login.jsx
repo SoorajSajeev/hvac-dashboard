@@ -5,9 +5,11 @@ import { REGIONS } from './locationConfig';
 import { validateAccessCode } from './accessConfig';
 
 export default function Login({ onLogin }) {
-  const [mode, setMode] = useState('login'); // 'login' | 'signup' | 'forgot'
+  const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [designation, setDesignation] = useState('');
   const [employeeId, setEmployeeId] = useState('');
   const [role, setRole] = useState('');
   const [scopeValue, setScopeValue] = useState('');
@@ -51,6 +53,8 @@ export default function Login({ onLogin }) {
       password,
       options: {
         data: {
+          full_name: fullName,
+          designation,
           employee_id: employeeId,
           role,
           scope: role === 'admin' ? 'ALL' : scopeValue,
@@ -65,24 +69,6 @@ export default function Login({ onLogin }) {
     } else {
       setMessage('Account created. Check your email to confirm before logging in.');
       setMode('login');
-    }
-  };
-
-  const handleForgotPassword = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    setMessage(null);
-
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin,
-    });
-
-    setLoading(false);
-    if (error) {
-      setError(error.message);
-    } else {
-      setMessage('Password reset link sent. Check your email.');
     }
   };
 
@@ -130,142 +116,96 @@ export default function Login({ onLogin }) {
 
       <div style={styles.rightPanel}>
         <div style={styles.formWrap}>
-          <h1 style={styles.heading}>
-            {mode === 'login' ? 'Sign in' : mode === 'signup' ? 'Create your account' : 'Reset your password'}
-          </h1>
+          <h1 style={styles.heading}>{mode === 'login' ? 'Sign in' : 'Create your account'}</h1>
           <p style={styles.subheading}>
-            {mode === 'login'
-              ? 'Access your HVAC monitoring dashboard'
-              : mode === 'signup'
-              ? 'Register to start monitoring'
-              : "Enter your email and we'll send you a reset link"}
+            {mode === 'login' ? 'Access your HVAC monitoring dashboard' : 'Register to start monitoring'}
           </p>
 
-          {mode === 'forgot' ? (
-            <form onSubmit={handleForgotPassword} style={styles.form}>
-              <label style={styles.label}>Email</label>
-              <input
-                className="nx-input"
-                style={styles.input}
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@company.com"
-                required
-              />
+          <form onSubmit={handleSubmit} style={styles.form}>
+            <label style={styles.label}>Email</label>
+            <input className="nx-input" style={styles.input} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" required />
 
-              {error && <div style={styles.error}>{error}</div>}
-              {message && <div style={styles.success}>{message}</div>}
+            <label style={styles.label}>Password</label>
+            <input className="nx-input" style={styles.input} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter password" minLength={6} required />
 
-              <button className="nx-btn" style={styles.button} type="submit" disabled={loading}>
-                {loading ? 'Sending...' : 'Send reset link'}
-              </button>
+            {mode === 'signup' && (
+              <>
+                <label style={styles.label}>Full name</label>
+                <input className="nx-input" style={styles.input} type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Your full name" required />
 
-              <div style={styles.switchRow}>
-                <span
-                  className="nx-link"
-                  style={styles.link}
-                  onClick={() => { setMode('login'); setError(null); setMessage(null); }}
-                >
-                  ← Back to sign in
-                </span>
-              </div>
-            </form>
-          ) : (
-            <form onSubmit={handleSubmit} style={styles.form}>
-              <label style={styles.label}>Email</label>
-              <input className="nx-input" style={styles.input} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" required />
+                <label style={styles.label}>Designation</label>
+                <input className="nx-input" style={styles.input} type="text" value={designation} onChange={(e) => setDesignation(e.target.value)} placeholder="e.g. Maintenance Engineer" required />
 
-              <label style={styles.label}>Password</label>
-              <input className="nx-input" style={styles.input} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter password" minLength={6} required />
+                <label style={styles.label}>Employee ID</label>
+                <input className="nx-input" style={styles.input} type="text" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} placeholder="e.g. EMP-1024" required />
 
-              {mode === 'login' && (
-                <div style={{ textAlign: 'right', marginTop: -10, marginBottom: 16 }}>
-                  <span
-                    className="nx-link"
-                    style={{ fontSize: 12, color: '#565959', fontWeight: 600 }}
-                    onClick={() => { setMode('forgot'); setError(null); setMessage(null); }}
-                  >
-                    Forgot password?
-                  </span>
+                <label style={styles.label}>Register as</label>
+                <div style={styles.roleRow}>
+                  {['manager', 'admin', 'engineer'].map((r) => (
+                    <div
+                      key={r}
+                      className="nx-role-btn"
+                      style={{ ...styles.roleBtn, ...(role === r ? styles.roleBtnActive : {}) }}
+                      onClick={() => { setRole(r); setScopeValue(''); setAccessCode(''); }}
+                    >
+                      {r.charAt(0).toUpperCase() + r.slice(1)}
+                    </div>
+                  ))}
                 </div>
-              )}
 
-              {mode === 'signup' && (
-                <>
-                  <label style={styles.label}>Employee ID</label>
-                  <input className="nx-input" style={styles.input} type="text" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} placeholder="e.g. EMP-1024" required />
+                {role === 'manager' && (
+                  <>
+                    <label style={styles.label}>Region</label>
+                    <select className="nx-input" style={styles.input} value={scopeValue} onChange={(e) => setScopeValue(e.target.value)} required>
+                      <option value="" disabled>Select region</option>
+                      {Object.keys(REGIONS).map((r) => (
+                        <option key={r} value={r}>{REGIONS[r].name}</option>
+                      ))}
+                    </select>
+                    <label style={styles.label}>Region Access Code</label>
+                    <input className="nx-input" style={styles.input} type="password" value={accessCode} onChange={(e) => setAccessCode(e.target.value)} placeholder="3-digit code" required />
+                  </>
+                )}
 
-                  <label style={styles.label}>Register as</label>
-                  <div style={styles.roleRow}>
-                    {['manager', 'admin', 'engineer'].map((r) => (
-                      <div
-                        key={r}
-                        className="nx-role-btn"
-                        style={{ ...styles.roleBtn, ...(role === r ? styles.roleBtnActive : {}) }}
-                        onClick={() => { setRole(r); setScopeValue(''); setAccessCode(''); }}
-                      >
-                        {r.charAt(0).toUpperCase() + r.slice(1)}
-                      </div>
-                    ))}
-                  </div>
+                {role === 'engineer' && (
+                  <>
+                    <label style={styles.label}>Unit</label>
+                    <select className="nx-input" style={styles.input} value={scopeValue} onChange={(e) => setScopeValue(e.target.value)} required>
+                      <option value="" disabled>Select unit</option>
+                      {Object.values(REGIONS).flatMap((r) => r.units).map((u) => (
+                        <option key={u.buildingId} value={u.buildingId}>{u.name}</option>
+                      ))}
+                    </select>
+                    <label style={styles.label}>Unit Access Code</label>
+                    <input className="nx-input" style={styles.input} type="password" value={accessCode} onChange={(e) => setAccessCode(e.target.value)} placeholder="3-digit code" required />
+                  </>
+                )}
 
-                  {role === 'manager' && (
-                    <>
-                      <label style={styles.label}>Region</label>
-                      <select className="nx-input" style={styles.input} value={scopeValue} onChange={(e) => setScopeValue(e.target.value)} required>
-                        <option value="" disabled>Select region</option>
-                        {Object.keys(REGIONS).map((r) => (
-                          <option key={r} value={r}>{REGIONS[r].name}</option>
-                        ))}
-                      </select>
-                      <label style={styles.label}>Region Access Code</label>
-                      <input className="nx-input" style={styles.input} type="password" value={accessCode} onChange={(e) => setAccessCode(e.target.value)} placeholder="3-digit code" required />
-                    </>
-                  )}
+                {role === 'admin' && (
+                  <div style={styles.adminNote}>Admins have access to all regions and units. No code required.</div>
+                )}
+              </>
+            )}
 
-                  {role === 'engineer' && (
-                    <>
-                      <label style={styles.label}>Unit</label>
-                      <select className="nx-input" style={styles.input} value={scopeValue} onChange={(e) => setScopeValue(e.target.value)} required>
-                        <option value="" disabled>Select unit</option>
-                        {Object.values(REGIONS).flatMap((r) => r.units).map((u) => (
-                          <option key={u.buildingId} value={u.buildingId}>{u.name}</option>
-                        ))}
-                      </select>
-                      <label style={styles.label}>Unit Access Code</label>
-                      <input className="nx-input" style={styles.input} type="password" value={accessCode} onChange={(e) => setAccessCode(e.target.value)} placeholder="3-digit code" required />
-                    </>
-                  )}
+            {error && <div style={styles.error}>{error}</div>}
+            {message && <div style={styles.success}>{message}</div>}
 
-                  {role === 'admin' && (
-                    <div style={styles.adminNote}>Admins have access to all regions and units. No code required.</div>
-                  )}
-                </>
-              )}
+            <button className="nx-btn" style={styles.button} type="submit" disabled={loading}>
+              {loading ? 'Please wait...' : mode === 'login' ? 'Log in' : 'Sign up'}
+            </button>
+          </form>
 
-              {error && <div style={styles.error}>{error}</div>}
-              {message && <div style={styles.success}>{message}</div>}
-
-              <button className="nx-btn" style={styles.button} type="submit" disabled={loading}>
-                {loading ? 'Please wait...' : mode === 'login' ? 'Log in' : 'Sign up'}
-              </button>
-            </form>
-          )}
-
-          {mode !== 'forgot' && (
-            <div style={styles.switchRow}>
-              {mode === 'login' ? (
-                <>Don't have an account?{' '}
-                  <span className="nx-link" style={styles.link} onClick={() => { setMode('signup'); setError(null); setMessage(null); }}>Sign up</span>
-                </>
-              ) : (
-                <>Already have an account?{' '}
-                  <span className="nx-link" style={styles.link} onClick={() => { setMode('login'); setError(null); setMessage(null); }}>Log in</span>
-                </>
-              )}
-            </div>
-          )}
+          <div style={styles.switchRow}>
+            {mode === 'login' ? (
+              <>Don't have an account?{' '}
+                <span className="nx-link" style={styles.link} onClick={() => { setMode('signup'); setError(null); setMessage(null); }}>Sign up</span>
+              </>
+            ) : (
+              <>Already have an account?{' '}
+                <span className="nx-link" style={styles.link} onClick={() => { setMode('login'); setError(null); setMessage(null); }}>Log in</span>
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -286,12 +226,7 @@ function StatChip({ icon: Icon, label, value }) {
 
 const styles = {
   page: { minHeight: '100vh', display: 'flex', fontFamily: "'Inter', sans-serif", background: '#F1F3F6' },
-
-  leftPanel: {
-    width: '40%', minHeight: '100vh', background: '#131A2C', color: '#fff',
-    display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-    padding: '40px 44px',
-  },
+  leftPanel: { width: '40%', minHeight: '100vh', background: '#131A2C', color: '#fff', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '40px 44px' },
   leftTop: { display: 'flex', alignItems: 'center', gap: 8 },
   logoIcon: { display: 'inline-flex' },
   logoText: { fontWeight: 800, fontSize: 18 },
@@ -305,7 +240,6 @@ const styles = {
   chipLabel: { fontSize: 8.5, letterSpacing: 0.5, opacity: 0.6, fontWeight: 600 },
   chipValue: { fontSize: 13.5, fontWeight: 700 },
   leftFoot: { fontSize: 11.5, opacity: 0.45 },
-
   rightPanel: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px 24px' },
   formWrap: { width: '100%', maxWidth: 380 },
   heading: { fontSize: 22, fontWeight: 700, margin: '0 0 4px', color: '#0F1111' },
