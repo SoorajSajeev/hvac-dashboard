@@ -1155,7 +1155,7 @@ const styles = {
   mapCityLabel: { fontSize: 12, fontWeight: 700, color: '#0F1111', whiteSpace: 'nowrap' },
   mapComingSoonBubble: {
     position: 'absolute', top: -30, left: '50%', transform: 'translateX(-50%)',
-    backround: '#131A2C', color: '#fff', fontSize: 10, fontWeight: 700, padding: '4px 9px',
+    background: '#131A2C', color: '#fff', fontSize: 10, fontWeight: 700, padding: '4px 9px',
     borderRadius: 6, whiteSpace: 'nowrap', boxShadow: '0 4px 10px rgba(15,17,17,0.25)',
   },
   mapLegendRow: { display: 'flex', gap: 18, justifyContent: 'center', marginTop: 18, flexWrap: 'wrap' },
@@ -1190,7 +1190,25 @@ const styles = {
   maintReportEngineer: { fontSize: 11.5, color: ACCENT, fontWeight: 600, marginTop: 2 },
   maintReportNotes: { fontSize: 12, color: '#565959', marginTop: 2 },
   maintReportAgo: { fontSize: 11, color: '#8A93A3', whiteSpace: 'nowrap', fontWeight: 500 },
-};  const role = session.user.user_metadata?.role || 'admin';
+};    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  if (checkingSession) return null;
+  if (isPasswordRecovery) return <ResetPassword onDone={() => setIsPasswordRecovery(false)} />;
+  if (!session) return <Login onLogin={setSession} />;
+  return <Dashboard session={session} />;
+}
+
+function Dashboard({ session }) {
+  const [predictions, setPredictions] = useState([]);
+  const [maintenanceLogs, setMaintenanceLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [lastFetch, setLastFetch] = useState(null);
+  const [search, setSearch] = useState('');
+  const [comingSoonCity, setComingSoonCity] = useState(null);
+
+  const role = session.user.user_metadata?.role || 'admin';
   const scope = session.user.user_metadata?.scope || 'ALL';
   const allowedBuildingIds = getAllowedBuildingIds(role, scope, REGIONS);
 
@@ -1294,6 +1312,38 @@ const styles = {
     }
   });
 
+  function findRegionForBuilding(buildingId) {
+    return Object.keys(REGIONS).find((r) => REGIONS[r].units.some((u) => u.buildingId === buildingId));
+  }
+
+  // Replacement: unit is in critical condition (anomaly flagged) — needs a new part/unit.
+  // Repair: unit has a non-critical predicted fault — needs servicing but isn't failing yet.
+  const replacementUnits = visibleUnits
+    .map((u) => ({ ...u, latest: byBuilding[u.buildingId]?.[0] }))
+    .filter((u) => classify(u.latest) === 'critical');
+  const repairUnits = visibleUnits
+    .map((u) => ({ ...u, latest: byBuilding[u.buildingId]?.[0] }))
+    .filter((u) => classify(u.latest) === 'warning');
+  const maintenanceAlertCount = replacementUnits.length + repairUnits.length;
+
+  function handleCityClick(cityKey) {
+    if (REGIONS[cityKey]) {
+      setSelectedRegion(cityKey);
+      setView('units');
+    } else {
+      setComingSoonCity(cityKey);
+      setTimeout(() => setComingSoonCity(null), 2200);
+    }
+  }
+
+  function goToUnit(buildingId) {
+    const regionKey = findRegionForBuilding(buildingId);
+    if (regionKey) setSelectedRegion(regionKey);
+    setSelectedBuildingId(buildingId);
+    setView('nodes');
+  }
+
+
   return (
     <div style={styles.page}>
       <style>{`
@@ -1307,6 +1357,10 @@ const styles = {
         .nx-crumb:hover { color: ${ACCENT}; }
         .nx-logout-btn:hover { background: #F1F3F6; }
         .nx-maint-btn:hover { background: #F1F3F6; }
+        .nx-map-city { cursor: pointer; transition: transform 0.15s ease; }
+        .nx-map-city:hover { transform: scale(1.15); }
+        @keyframes nx-pulse { 0%,100% { opacity: 0.5; transform: scale(1); } 50% { opacity: 0; transform: scale(2.2); } }
+        .nx-map-pulse { animation: nx-pulse 1.8s ease-out infinite; }
       `}</style>
 
       <nav style={styles.nav}>
@@ -1324,6 +1378,17 @@ const styles = {
           />
         </div>
         <div style={styles.navRight}>
+          {role === 'admin' && (
+            <button
+              className="nx-alerts-btn"
+              style={{ ...styles.alertsBtn, ...(view === 'maintenance' ? styles.alertsBtnActive : {}) }}
+              onClick={() => setView('maintenance')}
+            >
+              <AlertTriangle size={13} />
+              Needs attention
+              {maintenanceAlertCount > 0 && <span style={styles.alertsBadge}>{maintenanceAlertCount}</span>}
+            </button>
+          )}
           <div style={styles.roleBadge}>
             <ShieldCheck size={12} /> {role.charAt(0).toUpperCase() + role.slice(1)}
           </div>
@@ -1408,22 +1473,44 @@ const styles = {
           {role === 'engineer' && (
             <span style={styles.crumbActive}>{getUnitInfo(selectedBuildingId).name}</span>
           )}
+          {role === 'admin' && view === 'maintenance' && (
+            <>
+              <ChevronRight size={13} color="#8A93A3" />
+              <span style={styles.crumbActive}>Needs attention</span>
+            </>
+          )}
         </div>
 
         {error && <div style={styles.errorBanner}>Couldn't reach Supabase: {error}</div>}
 
         {view === 'regions' && role === 'admin' && (
-          <section style={styles.cardGrid}>
-            {visibleRegions.map((regionKey) => (
-              <RegionCard
-                key={regionKey}
-                regionKey={regionKey}
-                status={regionStatus(regionKey)}
-                worstUnit={regionWorstUnit(regionKey)}
-                onClick={() => { setSelectedRegion(regionKey); setView('units'); }}
-              />
-            ))}
-          </section>
+          <>
+            <IndiaMap
+              cities={MAP_CITIES}
+              regionStatus={regionStatus}
+              onCityClick={handleCityClick}
+              comingSoonCity={comingSoonCity}
+            />
+            <section style={styles.cardGrid}>
+              {visibleRegions.map((regionKey) => (
+                <RegionCard
+                  key={regionKey}
+                  regionKey={regionKey}
+                  status={regionStatus(regionKey)}
+                  worstUnit={regionWorstUnit(regionKey)}
+                  onClick={() => { setSelectedRegion(regionKey); setView('units'); }}
+                />
+              ))}
+            </section>
+          </>
+        )}
+
+        {view === 'maintenance' && role === 'admin' && (
+          <MaintenanceAlerts
+            replacementUnits={replacementUnits}
+            repairUnits={repairUnits}
+            onSelectUnit={goToUnit}
+          />
         )}
 
         {view === 'units' && selectedRegion && (
@@ -1505,6 +1592,76 @@ const styles = {
   );
 }
 
+/* ---------- India overview map ---------- */
+
+function IndiaMap({ cities, regionStatus, onCityClick, comingSoonCity }) {
+  return (
+    <div style={styles.mapCard}>
+      <div style={styles.mapHeaderRow}>
+        <div style={styles.diagramTitle}>Plant locations — India</div>
+        <div style={styles.diagramTag}>Tap a city to view units</div>
+      </div>
+
+      <div style={styles.mapOuter}>
+        <img src={INDIA_MAP_IMAGE_SRC} alt="Map of India" style={styles.mapImg} />
+
+        {cities.map((c) => (
+          <CityMarker
+            key={c.key}
+            city={c}
+            regionStatus={regionStatus}
+            onClick={() => onCityClick(c.key)}
+            showComingSoon={comingSoonCity === c.key}
+          />
+        ))}
+      </div>
+
+      <div style={styles.mapLegendRow}>
+        <LegendDot color="#1E7E34" label="Healthy" />
+        <LegendDot color="#946200" label="Attention" />
+        <LegendDot color="#CC0C39" label="Critical" />
+        <LegendDot color="#8A93A3" label="Coming soon" />
+      </div>
+    </div>
+  );
+}
+
+function CityMarker({ city, regionStatus, onClick, showComingSoon }) {
+  const isConfigured = !!REGIONS[city.key];
+  const status = isConfigured ? regionStatus(city.key) : 'unknown';
+  const meta = statusMeta[status];
+  const dotColor = isConfigured ? meta.color : '#8A93A3';
+
+  return (
+    <div
+      className="nx-map-city"
+      style={{ position: 'absolute', left: `${city.x}%`, top: `${city.y}%`, transform: 'translate(-50%, -50%)' }}
+      onClick={onClick}
+      title={city.name}
+    >
+      <div style={{ position: 'relative', width: 16, height: 16 }}>
+        {isConfigured && status !== 'healthy' && (
+          <div className="nx-map-pulse" style={{ position: 'absolute', inset: -6, borderRadius: '50%', background: dotColor }} />
+        )}
+        <div style={{ width: 16, height: 16, borderRadius: '50%', background: dotColor, border: '2.5px solid #fff', boxShadow: '0 2px 6px rgba(15,17,17,0.35)' }} />
+      </div>
+
+      {showComingSoon && (
+        <div style={styles.mapComingSoonBubble}>Coming soon</div>
+      )}
+    </div>
+  );
+}
+
+function LegendDot({ color, label }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
+      <span style={{ fontSize: 11, color: '#565959', fontWeight: 600 }}>{label}</span>
+    </div>
+  );
+}
+
 function RegionCard({ regionKey, status, worstUnit, onClick }) {
   const meta = statusMeta[status];
   const Icon = meta.Icon;
@@ -1574,6 +1731,77 @@ function UnitCard({ unit, latest, onClick }) {
         {reporting ? <Wifi size={12} /> : <WifiOff size={12} />} {reporting ? 'Reporting live' : 'Not reporting'}
       </div>
       <div style={styles.expandHint}><ChevronRight size={12} /> View node layout</div>
+    </div>
+  );
+}
+
+/* ---------- Admin: Maintenance Alerts — counts + lists of units needing repair/replacement ---------- */
+
+function MaintenanceAlerts({ replacementUnits, repairUnits, onSelectUnit }) {
+  return (
+    <section style={{ marginBottom: 36 }}>
+      <div style={styles.alertsSummaryGrid}>
+        <div style={{ ...styles.alertsSummaryCard, background: statusMeta.critical.bg, border: `1px solid ${statusMeta.critical.border}` }}>
+          <div style={{ ...styles.alertsSummaryIcon, background: '#fff' }}>
+            <PackageX size={20} color={statusMeta.critical.color} />
+          </div>
+          <div>
+            <div style={{ ...styles.alertsSummaryNum, color: statusMeta.critical.color }}>{replacementUnits.length}</div>
+            <div style={styles.alertsSummaryLabel}>Need replacement</div>
+          </div>
+        </div>
+        <div style={{ ...styles.alertsSummaryCard, background: statusMeta.warning.bg, border: `1px solid ${statusMeta.warning.border}` }}>
+          <div style={{ ...styles.alertsSummaryIcon, background: '#fff' }}>
+            <Wrench size={20} color={statusMeta.warning.color} />
+          </div>
+          <div>
+            <div style={{ ...styles.alertsSummaryNum, color: statusMeta.warning.color }}>{repairUnits.length}</div>
+            <div style={styles.alertsSummaryLabel}>Need repair</div>
+          </div>
+        </div>
+      </div>
+
+      <AlertsList
+        title="Units needing replacement"
+        subtitle="Critical condition — flagged as an anomaly and at high risk of failure."
+        units={replacementUnits}
+        meta={statusMeta.critical}
+        onSelectUnit={onSelectUnit}
+      />
+      <AlertsList
+        title="Units needing repair"
+        subtitle="A fault has been predicted but the unit isn't failing yet."
+        units={repairUnits}
+        meta={statusMeta.warning}
+        onSelectUnit={onSelectUnit}
+      />
+    </section>
+  );
+}
+
+function AlertsList({ title, subtitle, units, meta, onSelectUnit }) {
+  return (
+    <div style={styles.card}>
+      <div style={styles.cardTitle}>{title}</div>
+      <div style={{ fontSize: 12, color: '#565959', marginTop: 2, marginBottom: 14 }}>{subtitle}</div>
+      {units.length === 0 ? (
+        <div style={styles.logEmpty}>No units in this state right now.</div>
+      ) : (
+        <div style={styles.logList}>
+          {units.map((u) => (
+            <div key={u.buildingId} className="hover-card" style={styles.logRow} onClick={() => onSelectUnit(u.buildingId)}>
+              <div style={{ ...styles.logDot, background: meta.color }} />
+              <div style={styles.logMain}>
+                <div style={styles.logTitle}>{u.name} · {u.latest?.predicted_fault || 'Unknown fault'}</div>
+                <div style={styles.logSub}>
+                  Est. {u.latest?.predicted_remaining_life_days != null ? `${Number(u.latest.predicted_remaining_life_days).toFixed(1)} days left` : 'life unknown'}
+                </div>
+              </div>
+              <ChevronRight size={14} color="#8A93A3" />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1675,7 +1903,7 @@ function MaintenanceCard({ componentKey, label, Icon, logs, canLog, onLog }) {
             <div style={styles.maintFormBtnRow}>
               <button type="button" style={styles.maintFormCancel} onClick={() => setOpen(false)}>Cancel</button>
               <button type="submit" style={styles.maintFormSave} disabled={saving}>
-                {saving ? 'Saving…' : 'Save'}
+                {saving ? 'Submitting…' : 'Submit'}
               </button>
             </div>
           </form>
@@ -1902,6 +2130,15 @@ const styles = {
   searchInput: { border: 'none', background: 'transparent', fontSize: 14, width: '100%', fontFamily: "'Inter', sans-serif", color: '#0F1111' },
   navRight: { display: 'flex', alignItems: 'center', gap: 12 },
   roleBadge: { display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: ACCENT, background: 'rgba(232,106,0,0.14)', padding: '5px 10px', borderRadius: 7 },
+  alertsBtn: {
+    display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: '#FFFFFF',
+    background: 'transparent', border: '1px solid #3A465F', borderRadius: 8, padding: '7px 12px', cursor: 'pointer',
+  },
+  alertsBtnActive: { background: 'rgba(232,106,0,0.18)', borderColor: ACCENT },
+  alertsBadge: {
+    background: '#CC0C39', color: '#fff', fontSize: 10.5, fontWeight: 800, borderRadius: 999,
+    padding: '1px 6px', lineHeight: 1.4,
+  },
   avatar: { width: 32, height: 32, borderRadius: 8, background: ACCENT, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12 },
   logoutBtn: { border: '1px solid #3A465F', background: 'transparent', borderRadius: 8, padding: '7px 13px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', color: '#FFFFFF', display: 'flex', alignItems: 'center', gap: 6 },
 
@@ -1945,6 +2182,12 @@ const styles = {
   expandHint: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: ACCENT, fontWeight: 600, marginTop: 6 },
   offenderCallout: { display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 11.5, fontWeight: 600, padding: '8px 10px', borderRadius: 8, marginBottom: 4, lineHeight: 1.4 },
 
+  alertsSummaryGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, marginBottom: 8 },
+  alertsSummaryCard: { display: 'flex', alignItems: 'center', gap: 14, borderRadius: 12, padding: '18px 20px' },
+  alertsSummaryIcon: { width: 44, height: 44, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 1px 4px rgba(15,17,17,0.12)' },
+  alertsSummaryNum: { fontSize: 26, fontWeight: 800, lineHeight: 1.1 },
+  alertsSummaryLabel: { fontSize: 12.5, fontWeight: 700, color: '#0F1111', marginTop: 2 },
+
   logSection: {},
   sectionTitle: { fontSize: 18, fontWeight: 600, marginBottom: 12, color: '#0F1111' },
   logList: { background: '#FFFFFF', border: '1px solid #E3E6E8', borderRadius: 12, padding: 6 },
@@ -1987,6 +2230,19 @@ const styles = {
   pinStatValue: { fontSize: 12, fontWeight: 700, color: '#0F1111', lineHeight: 1.2 },
   pinStatLabel: { fontSize: 7.5, color: '#8A93A3', fontWeight: 600, letterSpacing: 0.2, marginTop: 1 },
   pinReporting: { display: 'flex', alignItems: 'center', gap: 3, fontSize: 7.5, fontWeight: 600, paddingTop: 5, borderTop: '1px solid #F1F3F6' },
+
+  mapCard: { background: '#FFFFFF', border: '1px solid #E3E6E8', borderRadius: 12, padding: '20px 24px 24px', marginBottom: 24 },
+  mapHeaderRow: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 },
+  mapOuter: { position: 'relative', width: '100%', maxWidth: 640, margin: '0 auto' },
+  mapImg: { display: 'block', width: '100%', height: 'auto' },
+  mapCityRow: { display: 'flex', alignItems: 'center', gap: 6 },
+  mapCityLabel: { fontSize: 12, fontWeight: 700, color: '#0F1111', whiteSpace: 'nowrap' },
+  mapComingSoonBubble: {
+    position: 'absolute', top: -30, left: '50%', transform: 'translateX(-50%)',
+    background: '#131A2C', color: '#fff', fontSize: 10, fontWeight: 700, padding: '4px 9px',
+    borderRadius: 6, whiteSpace: 'nowrap', boxShadow: '0 4px 10px rgba(15,17,17,0.25)',
+  },
+  mapLegendRow: { display: 'flex', gap: 18, justifyContent: 'center', marginTop: 18, flexWrap: 'wrap' },
 
   maintViewOnlyNote: { fontSize: 11.5, color: '#8A93A3', marginBottom: 14, marginTop: -8 },
   maintGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 },
