@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+  import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from './supabaseClient';
 import Login from './Login';
 import ResetPassword from './ResetPassword';
@@ -1190,7 +1190,115 @@ const styles = {
   maintReportEngineer: { fontSize: 11.5, color: ACCENT, fontWeight: 600, marginTop: 2 },
   maintReportNotes: { fontSize: 12, color: '#565959', marginTop: 2 },
   maintReportAgo: { fontSize: 11, color: '#8A93A3', whiteSpace: 'nowrap', fontWeight: 500 },
-};    return () => listener.subscription.unsubscribe();
+};import React, { useState, useEffect, useCallback } from 'react';
+import { supabase } from './supabaseClient';
+import Login from './Login';
+import ResetPassword from './ResetPassword';
+import ChatBot from './ChatBot';
+import { REGIONS, getUnitInfo } from './locationConfig';
+import { getAllowedBuildingIds, NODE_PLACEMENT } from './accessConfig';
+import {
+  Zap, Search, LogOut, Factory, CheckCircle2, AlertTriangle, AlertOctagon,
+  Clock, ChevronRight, ChevronDown, ChevronUp, MapPin, Cpu, Wind, Filter as FilterIcon, Wifi, WifiOff, ShieldCheck, Plus, History, Wrench, PackageX,
+} from 'lucide-react';
+
+const REFRESH_INTERVAL_MS = 15000;
+const STALE_THRESHOLD_MS = 30 * 60 * 1000;
+const ACCENT = '#E86A00';
+
+const AHU_IMAGE_SRC = '/ahu-schematic.png';
+const INDIA_MAP_IMAGE_SRC = '/india-map.png';
+
+const PIN_POSITIONS = {
+  filter: { x: 81, y: 40, side: 'top', dist: 140 },
+  motor: { x: 57, y: 48, side: 'top', dist: 110 },
+  belt: { x: 66, y: 44, side: 'bottom', dist: 150 },
+};
+
+// Recommended service interval per component, in days — tune to your real maintenance schedule.
+const SERVICE_INTERVAL_DAYS = { motor: 180, belt: 90, filter: 60 };
+
+// Cities shown on the India overview map. Only cities present as keys in REGIONS
+// (see locationConfig.js) are clickable/navigable — the rest show "Coming soon".
+// x/y were read directly off /public/india-map.png with a percentage grid overlaid
+// on the actual image, then verified by plotting test dots back onto the same PNG
+// and visually confirming each one lands inside the correct state's outline.
+const MAP_CITIES = [
+  { key: 'Delhi', name: 'Delhi', x: 37.0, y: 28.7 },
+  { key: 'Gujarat', name: 'Gujarat', x: 19.8, y: 47.1 },
+  { key: 'Mumbai', name: 'Mumbai', x: 27.3, y: 59.3 },
+  { key: 'Bhubaneswar', name: 'Bhubaneswar', x: 56.2, y: 56.5 },
+  { key: 'Hyderabad', name: 'Hyderabad', x: 39.4, y: 66.1 },
+  { key: 'Bengaluru', name: 'Bengaluru', x: 34.2, y: 78.9 },
+  { key: 'Chennai', name: 'Chennai', x: 44.2, y: 79.3 },
+  { key: 'Kerala', name: 'Kerala', x: 33.7, y: 89.7 },
+];
+
+const statusMeta = {
+  healthy: { label: 'All good', color: '#1E7E34', bg: '#E9F6EC', border: '#C3E6CB', Icon: CheckCircle2 },
+  warning: { label: 'Needs attention', color: '#946200', bg: '#FFF3D6', border: '#F5DE9A', Icon: AlertTriangle },
+  critical: { label: 'Act now', color: '#CC0C39', bg: '#FDECEA', border: '#F5C6CE', Icon: AlertOctagon },
+  unknown: { label: 'Waiting for data', color: '#565959', bg: '#F1F3F6', border: '#E3E6E8', Icon: Clock },
+};
+
+function classify(pred) {
+  if (!pred) return 'unknown';
+  if (pred.is_anomaly) return 'critical';
+  if (pred.predicted_fault && pred.predicted_fault !== 'HEALTHY') return 'warning';
+  return 'healthy';
+}
+
+function timeAgo(iso) {
+  if (!iso) return '—';
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60) return `${Math.floor(diff)}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  return `${Math.floor(diff / 3600)}h ago`;
+}
+
+function daysAgo(dateStr) {
+  if (!dateStr) return null;
+  const diff = (Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24);
+  return Math.floor(diff);
+}
+
+function isReporting(latest) {
+  if (!latest?.scored_at) return false;
+  return Date.now() - new Date(latest.scored_at).getTime() < STALE_THRESHOLD_MS;
+}
+
+function getNodeStatuses(latest) {
+  const overall = classify(latest);
+  const fault = (latest?.predicted_fault || '').toUpperCase();
+  const escalate = overall === 'critical' ? 'critical' : overall === 'warning' ? 'warning' : 'healthy';
+
+  const motorMatch = /MOTOR|BEARING|ROTOR|SHAFT|OVERLOAD|OVERHEAT/.test(fault);
+  const beltMatch = /BELT|SLIP|LOOSENESS|MISALIGN/.test(fault);
+  const filterMatch = /FILTER|DUST|CLOG|BLOCK/.test(fault);
+
+  return {
+    motor: motorMatch ? escalate : 'healthy',
+    belt: beltMatch ? escalate : 'healthy',
+    filter: filterMatch ? escalate : 'healthy',
+    overall,
+  };
+}
+
+export default function App() {
+  const [session, setSession] = useState(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setCheckingSession(false);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') setIsPasswordRecovery(true);
+      setSession(session);
+    });
+    return () => listener.subscription.unsubscribe();
   }, []);
 
   if (checkingSession) return null;
@@ -2275,3 +2383,4 @@ const styles = {
   maintReportNotes: { fontSize: 12, color: '#565959', marginTop: 2 },
   maintReportAgo: { fontSize: 11, color: '#8A93A3', whiteSpace: 'nowrap', fontWeight: 500 },
 };
+
